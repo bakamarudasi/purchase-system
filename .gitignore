@@ -1,0 +1,36 @@
+# ビルド成果物
+dist/
+*.js
+*.js.map
+
+# 依存関係
+node_modules/
+package-lock.json
+
+# clasp認証情報（重要：絶対にコミットしない）
+.clasp.json
+.clasprc.json
+
+# 環境変数
+.env
+.env.local
+.env.*.local
+
+# ログ
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# OS
+Thumbs.db
+.Spotlight-V100
+.Trashes

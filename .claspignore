@@ -1,0 +1,2 @@
+# Since 'rootDir' is set to 'dist', only files we DON'T want in dist need to be listed here.
+# In our case, that's nothing.
