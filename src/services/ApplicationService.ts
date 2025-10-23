@@ -5,7 +5,8 @@
 
 import { Application, ApplicationStatus, FileInfo } from '../models/Application';
 import { SHEET_NAMES, COLUMN_INDEX, STATUS, ERROR_MESSAGES, getSpreadsheet, DEFAULT_CONFIG } from '../config';
-//import { formatDateTime } from '../utils/date';  使ってないからｺﾒﾝﾄアウトで修正　将来用に宣言ぐらいはしておく'
+// TODO: formatDateTime が必要になったら import を有効化する
+// import { formatDateTime } from '../utils/date';
 import { safeParseInt, safeParseFloat } from '../utils/format';
 
 export class ApplicationService {
@@ -99,13 +100,25 @@ export class ApplicationService {
 
         if (data.file) {
             try {
+                // ファイル形式のバリデーション
+                if (!DEFAULT_CONFIG.ALLOWED_MIME_TYPES.includes(data.file.mimeType)) {
+                    throw new Error(ERROR_MESSAGES.INVALID_FILE_TYPE);
+                }
+
                 const decodedData = Utilities.base64Decode(data.file.data);
+
+                // ファイルサイズのバリデーション
+                if (decodedData.length > DEFAULT_CONFIG.MAX_FILE_SIZE) {
+                    throw new Error(ERROR_MESSAGES.FILE_TOO_LARGE);
+                }
+
                 const blob = Utilities.newBlob(decodedData, data.file.mimeType, data.file.name);
                 const folder = DriveApp.getFolderById(DEFAULT_CONFIG.ATTACHMENT_FOLDER_ID);
                 const newFile = folder.createFile(blob);
                 fileUrl = newFile.getUrl();
             } catch (e) {
                 Logger.log(`ファイルアップロードエラー: ${e}`);
+                throw e; // エラーを再スローして、呼び出し側で適切に処理できるようにする
             }
         }
 
@@ -156,7 +169,7 @@ export class ApplicationService {
     static getApproverList(): string[] {
         try {
             const approverSheet = this.getSheet(SHEET_NAMES.APPROVER_LIST);
-            // A列の2行目から最後まで取得
+            // B列の2行目から最後まで取得
             const data = approverSheet.getRange('B2:B').getValues();
             // 配列をフラットにし、空のセルを除外
             return data.flat().filter(name => name !== '');

@@ -46,7 +46,7 @@ export const STATUS = {
     APPROVED: '承認',
     REJECTED: '却下',
     PURCHASED: '購入済',
-    CLEAR :'完了'
+    CLEAR: '完了'
 } as const;
 
 /**
