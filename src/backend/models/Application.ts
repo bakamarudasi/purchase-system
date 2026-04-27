@@ -3,8 +3,23 @@
  * - 未対応: 承認待ち
  * - 承認: 承認済み
  * - 却下: 却下済み
+ * - 購入済: 購入処理済（将来用）
+ * - 完了: 申請クローズ（将来用）
  */
-export type ApplicationStatus = '未対応' | '承認' | '却下' | '購入済' | "完了" ;
+export type ApplicationStatus =
+    | '未対応'
+    | '承認'
+    | '却下'
+    | '購入済'
+    | '完了';
+
+/**
+ * 承認者（社員名簿のサブセット）
+ */
+export interface Approver {
+    email: string;
+    name: string;
+}
 
 /**
  * 添付ファイル情報

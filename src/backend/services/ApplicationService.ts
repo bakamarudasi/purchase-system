@@ -3,10 +3,24 @@
  * スプレッドシートとのデータ連携、承認・却下処理を担当
  */
 
-import { Application, ApplicationStatus, FileInfo } from '../models/Application';
-import { SHEET_NAMES, COLUMN_INDEX, STATUS, ERROR_MESSAGES, getSpreadsheet, DEFAULT_CONFIG } from '../config';
-//import { formatDateTime } from '../utils/date';  使ってないからｺﾒﾝﾄアウトで修正　将来用に宣言ぐらいはしておく'
-import { safeParseInt, safeParseFloat } from '../utils/format';
+import {
+    Application,
+    ApplicationStatus,
+    Approver,
+    FileInfo,
+} from '../models/Application';
+import {
+    SHEET_NAMES,
+    COLUMN_INDEX,
+    STATUS,
+    ERROR_MESSAGES,
+    getSpreadsheet,
+    DEFAULT_CONFIG,
+} from '../config';
+import { safeParseInt, safeParseFloat, formatError } from '../utils/format';
+
+const COLUMN_COUNT = Object.keys(COLUMN_INDEX).length;
+const LOCK_TIMEOUT_MS = 10_000;
 
 export class ApplicationService {
     /**
@@ -43,7 +57,7 @@ export class ApplicationService {
         }
 
         const sheet = this.getSheet(SHEET_NAMES.APPLICATIONS);
-        const row = sheet.getRange(rowIndex, 1, 1, 14).getValues()[0];
+        const row = sheet.getRange(rowIndex, 1, 1, COLUMN_COUNT).getValues()[0];
 
         return this.parseRowToApplication(row, rowIndex);
     }
@@ -80,6 +94,9 @@ export class ApplicationService {
 
     /**
      * 新規申請を追加
+     *
+     * - 添付ファイルがあれば MIME とサイズを検証してから Drive に保存
+     * - LockService で同時実行ガードし、appendRow 直後に getLastRow() の競合を防ぐ
      */
     static addApplication(data: {
         name: string;
@@ -92,43 +109,39 @@ export class ApplicationService {
         selectedApprover?: string;
         file?: { name: string; mimeType: string; data: string };
     }): Application {
-        const sheet = this.getSheet(SHEET_NAMES.APPLICATIONS);
-        const timestamp = new Date();
-        const totalPrice = data.quantity * data.unitPrice;
-        let fileUrl = '';
-
         if (data.file) {
-            try {
-                const decodedData = Utilities.base64Decode(data.file.data);
-                const blob = Utilities.newBlob(decodedData, data.file.mimeType, data.file.name);
-                const folder = DriveApp.getFolderById(DEFAULT_CONFIG.ATTACHMENT_FOLDER_ID);
-                const newFile = folder.createFile(blob);
-                fileUrl = newFile.getUrl();
-            } catch (e) {
-                Logger.log(`ファイルアップロードエラー: ${e}`);
-            }
+            this.validateFile(data.file);
         }
 
+        const fileUrl = data.file ? this.uploadFile(data.file) : '';
+        const timestamp = new Date();
+        const totalPrice = data.quantity * data.unitPrice;
+        const approver = data.selectedApprover || '';
+
         const row = [
-            timestamp,           // A: タイムスタンプ
-            data.name,          // B: 名前
-            data.department,    // C: 部署
-            data.itemName,      // D: 商品名
-            data.quantity,      // E: 数量
-            data.unitPrice,     // F: 単価
-            totalPrice,         // G: 合計金額
-            data.reason,        // H: 購入理由
-            fileUrl,            // I: 添付ファイルURL
-            data.productUrl || '', // J: 購入商品URL
-            STATUS.PENDING,     // K: ステータス（初期値は未対応）
-            data.selectedApprover || '', // L: 承認者
-            '',                 // M: 承認日
-            '',                 // N: コメント
+            timestamp,                  // A: タイムスタンプ
+            data.name,                  // B: 名前
+            data.department,            // C: 部署
+            data.itemName,              // D: 商品名
+            data.quantity,              // E: 数量
+            data.unitPrice,             // F: 単価
+            totalPrice,                 // G: 合計金額
+            data.reason,                // H: 購入理由
+            fileUrl,                    // I: 添付ファイルURL
+            data.productUrl || '',      // J: 購入商品URL
+            STATUS.PENDING,             // K: ステータス（初期値は未対応）
+            approver,                   // L: 承認者 (email)
+            '',                         // M: 承認日
+            '',                         // N: コメント
         ];
 
-        sheet.appendRow(row);
+        const newRowIndex = this.withLock(() => {
+            const sheet = this.getSheet(SHEET_NAMES.APPLICATIONS);
+            sheet.appendRow(row);
+            SpreadsheetApp.flush();
+            return sheet.getLastRow();
+        });
 
-        const newRowIndex = sheet.getLastRow();
         const newApplication: Application = {
             rowIndex: newRowIndex,
             timestamp: timestamp.toISOString(),
@@ -142,7 +155,7 @@ export class ApplicationService {
             productUrl: data.productUrl || null,
             fileInfo: fileUrl ? this.parseFileInfo(fileUrl) : null,
             status: STATUS.PENDING,
-            approver: data.selectedApprover || '',
+            approver,
             approvalDate: null,
             comment: ''
         };
@@ -153,15 +166,19 @@ export class ApplicationService {
     /**
      * 承認者リストを取得
      */
-    static getApproverList(): string[] {
+    static getApproverList(): Approver[] {
         try {
             const approverSheet = this.getSheet(SHEET_NAMES.APPROVER_LIST);
-            // A列の2行目から最後まで取得
-            const data = approverSheet.getRange('B2:B').getValues();
-            // 配列をフラットにし、空のセルを除外
-            return data.flat().filter(name => name !== '');
+            // 想定列: A=email, B=名前 (2 行目以降)
+            const data = approverSheet.getRange('A2:B').getValues();
+            return data
+                .filter(row => row[0] && row[1])
+                .map(row => ({
+                    email: String(row[0]),
+                    name: String(row[1]),
+                }));
         } catch (e) {
-            Logger.log(`承認者リストの取得エラー: ${e}`);
+            Logger.log(`承認者リストの取得エラー: ${formatError(e)}`);
             return [];
         }
     }
@@ -237,32 +254,32 @@ export class ApplicationService {
         rowIndex: number,
         status: ApplicationStatus,
         approver: string,
-        comment: string
+        comment: string,
     ): void {
         if (rowIndex < 2) {
             throw new Error(ERROR_MESSAGES.INVALID_ROW_INDEX);
         }
 
-        const sheet = this.getSheet(SHEET_NAMES.APPLICATIONS);
-        const now = new Date();
+        this.withLock(() => {
+            const sheet = this.getSheet(SHEET_NAMES.APPLICATIONS);
+            const now = new Date();
 
-        // K列: ステータス
-        sheet.getRange(rowIndex, COLUMN_INDEX.STATUS + 1).setValue(status);
+            sheet.getRange(rowIndex, COLUMN_INDEX.STATUS + 1).setValue(status);
+            sheet.getRange(rowIndex, COLUMN_INDEX.APPROVER + 1).setValue(approver);
+            sheet.getRange(rowIndex, COLUMN_INDEX.APPROVAL_DATE + 1).setValue(now);
+            sheet.getRange(rowIndex, COLUMN_INDEX.COMMENT + 1).setValue(comment);
 
-        // L列: 承認者
-        sheet.getRange(rowIndex, COLUMN_INDEX.APPROVER + 1).setValue(approver);
-
-        // M列: 承認日
-        sheet.getRange(rowIndex, COLUMN_INDEX.APPROVAL_DATE + 1).setValue(now);
-
-        // N列: コメント
-        sheet.getRange(rowIndex, COLUMN_INDEX.COMMENT + 1).setValue(comment);
+            SpreadsheetApp.flush();
+        });
     }
 
     /**
      * スプレッドシート行をApplicationオブジェクトに変換
      */
-    private static parseRowToApplication(row: any[], rowIndex: number): Application | null {
+    private static parseRowToApplication(
+        row: unknown[],
+        rowIndex: number,
+    ): Application | null {
         try {
             const timestamp = row[COLUMN_INDEX.TIMESTAMP];
             const fileUrl = row[COLUMN_INDEX.FILE_URL];
@@ -270,27 +287,30 @@ export class ApplicationService {
             // タイムスタンプが空の場合はスキップ
             if (!timestamp) return null;
 
+            const productUrlRaw = row[COLUMN_INDEX.PRODUCT_URL];
+            const productUrl = productUrlRaw ? String(productUrlRaw) : null;
+
             const app: Application = {
                 rowIndex,
-                timestamp: this.parseDate(timestamp)?.toISOString() || null,
-                name: String(row[COLUMN_INDEX.NAME] || ''),
-                department: String(row[COLUMN_INDEX.DEPARTMENT] || ''),
-                itemName: String(row[COLUMN_INDEX.ITEM_NAME] || ''),
-                quantity: safeParseInt(row[COLUMN_INDEX.QUANTITY], 0),
-                unitPrice: safeParseFloat(row[COLUMN_INDEX.UNIT_PRICE], 0),
-                totalPrice: safeParseFloat(row[COLUMN_INDEX.TOTAL_PRICE], 0),
-                reason: String(row[COLUMN_INDEX.REASON] || ''),
-                productUrl: String(row[COLUMN_INDEX.PRODUCT_URL] || ''),
-                fileInfo: fileUrl ? this.parseFileInfo(fileUrl) : null,
+                timestamp: this.parseDate(timestamp)?.toISOString() ?? null,
+                name: String(row[COLUMN_INDEX.NAME] ?? ''),
+                department: String(row[COLUMN_INDEX.DEPARTMENT] ?? ''),
+                itemName: String(row[COLUMN_INDEX.ITEM_NAME] ?? ''),
+                quantity: safeParseInt(row[COLUMN_INDEX.QUANTITY] as string | number | null, 0),
+                unitPrice: safeParseFloat(row[COLUMN_INDEX.UNIT_PRICE] as string | number | null, 0),
+                totalPrice: safeParseFloat(row[COLUMN_INDEX.TOTAL_PRICE] as string | number | null, 0),
+                reason: String(row[COLUMN_INDEX.REASON] ?? ''),
+                productUrl,
+                fileInfo: fileUrl ? this.parseFileInfo(String(fileUrl)) : null,
                 status: (row[COLUMN_INDEX.STATUS] || STATUS.PENDING) as ApplicationStatus,
-                approver: String(row[COLUMN_INDEX.APPROVER] || ''),
-                approvalDate: this.parseDate(row[COLUMN_INDEX.APPROVAL_DATE])?.toISOString() || null,
-                comment: String(row[COLUMN_INDEX.COMMENT] || ''),
+                approver: String(row[COLUMN_INDEX.APPROVER] ?? ''),
+                approvalDate: this.parseDate(row[COLUMN_INDEX.APPROVAL_DATE])?.toISOString() ?? null,
+                comment: String(row[COLUMN_INDEX.COMMENT] ?? ''),
             };
 
             return app;
         } catch (error) {
-            Logger.log(`行${rowIndex}のパースエラー: ${error}`);
+            Logger.log(`行${rowIndex}のパースエラー: ${formatError(error)}`);
             return null;
         }
     }
@@ -298,7 +318,7 @@ export class ApplicationService {
     /**
      * 日付をパース
      */
-    private static parseDate(value: any): Date | null {
+    private static parseDate(value: unknown): Date | null {
         if (!value) return null;
 
         if (value instanceof Date) {
@@ -315,35 +335,96 @@ export class ApplicationService {
 
     /**
      * ファイルURLからFileInfo型を生成
+     * Drive 取得に失敗した場合（権限なし等）は最低限の情報を返す
      */
     private static parseFileInfo(url: string): FileInfo | null {
         if (!url) return null;
 
+        const match = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+        const fileId = match ? match[1] : '';
+
         try {
-            const match = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
-            if (!match) return null;
-            const fileId = match[1];
-
+            if (!fileId) return null;
             const file = DriveApp.getFileById(fileId);
-            const size = this.formatBytes(file.getSize());
-
             return {
                 id: fileId,
                 name: file.getName(),
                 mimeType: file.getMimeType(),
-                size: size,
-                url: url,
+                size: this.formatBytes(file.getSize()),
+                url,
             };
         } catch (e) {
-            Logger.log(`parseFileInfoでエラー: ${e}`);
-            // エラーが起きても、最低限の情報を返す
+            Logger.log(`parseFileInfoでエラー: ${formatError(e)}`);
             return {
-                id: '',
-                name: 'ファイル名取得失敗',
-                mimeType: 'application/pdf',
+                id: fileId,
+                name: 'ファイル情報の取得に失敗',
+                mimeType: 'application/octet-stream',
                 size: '不明',
-                url: url,
+                url,
             };
+        }
+    }
+
+    /**
+     * 添付ファイルのバリデーション
+     * - MIME: DEFAULT_CONFIG.ALLOWED_MIME_TYPES に含まれるか
+     * - サイズ: DEFAULT_CONFIG.MAX_FILE_SIZE 以下か
+     */
+    private static validateFile(file: {
+        name: string;
+        mimeType: string;
+        data: string;
+    }): void {
+        const allowed = DEFAULT_CONFIG.ALLOWED_MIME_TYPES as readonly string[];
+        if (!allowed.includes(file.mimeType)) {
+            throw new Error(ERROR_MESSAGES.INVALID_FILE_TYPE);
+        }
+
+        // base64 文字列から元のバイト長を概算（パディング込み: 4 文字 → 3 バイト）
+        const padding = (file.data.match(/=+$/) ?? [''])[0].length;
+        const approxBytes = Math.floor((file.data.length * 3) / 4) - padding;
+        if (approxBytes > DEFAULT_CONFIG.MAX_FILE_SIZE) {
+            throw new Error(ERROR_MESSAGES.FILE_TOO_LARGE);
+        }
+    }
+
+    /**
+     * Drive へファイルをアップロードして URL を返す
+     */
+    private static uploadFile(file: {
+        name: string;
+        mimeType: string;
+        data: string;
+    }): string {
+        try {
+            const decoded = Utilities.base64Decode(file.data);
+            const blob = Utilities.newBlob(decoded, file.mimeType, file.name);
+            const folder = DriveApp.getFolderById(
+                DEFAULT_CONFIG.ATTACHMENT_FOLDER_ID,
+            );
+            const newFile = folder.createFile(blob);
+            return newFile.getUrl();
+        } catch (e) {
+            Logger.log(`ファイルアップロードエラー: ${formatError(e)}`);
+            throw new Error('添付ファイルの保存に失敗しました');
+        }
+    }
+
+    /**
+     * LockService で排他ロックを取りつつ処理を実行
+     * 申請の追加など、行番号の競合が起きうる処理に使う
+     */
+    private static withLock<T>(fn: () => T): T {
+        const lock = LockService.getScriptLock();
+        if (!lock.tryLock(LOCK_TIMEOUT_MS)) {
+            throw new Error(
+                '他の処理が進行中です。しばらくしてから再度お試しください。',
+            );
+        }
+        try {
+            return fn();
+        } finally {
+            lock.releaseLock();
         }
     }
 

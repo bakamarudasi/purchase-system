@@ -7,6 +7,7 @@ import { ApplicationService } from '../services';
 import type {
   Application,
   ApplicationStatus,
+  Approver,
 } from '../models/Application';
 
 export function getAllApplications(): Application[] {
@@ -63,7 +64,7 @@ export function getStatistics() {
   return ApplicationService.getStatistics();
 }
 
-export function getApproverList(): string[] {
+export function getApproverList(): Approver[] {
   return ApplicationService.getApproverList();
 }
 

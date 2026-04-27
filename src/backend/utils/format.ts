@@ -80,3 +80,14 @@ export function safeParseFloat(
 
     return isNaN(num) ? defaultValue : num;
 }
+
+/**
+ * 例外オブジェクトを文字列化（スタックトレース付き）
+ * Logger.log で例外を出力する際に使う
+ */
+export function formatError(error: unknown): string {
+    if (error instanceof Error) {
+        return `${error.message}\n${error.stack ?? ''}`;
+    }
+    return String(error);
+}
