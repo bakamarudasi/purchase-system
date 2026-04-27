@@ -1,11 +1,9 @@
 # ビルド成果物
+gas/dist/
 dist/
-*.js
-*.js.map
 
 # 依存関係
 node_modules/
-package-lock.json
 
 # clasp認証情報（重要：絶対にコミットしない）
 .clasp.json

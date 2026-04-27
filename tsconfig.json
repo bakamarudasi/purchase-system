@@ -1,48 +1,7 @@
 {
-  "compilerOptions": {
-    /* Language and Environment */
-    "target": "ES2019",
-    "lib": ["ES2019", "DOM"],
-    
-    /* Modules */
-    "module": "ESNext",
-    "moduleResolution": "node",
-    "esModuleInterop": true,
-    
-    /* Emit */
-    "rootDir": "./src",
-    "removeComments": true,
-    "sourceMap": false,
-    
-    /* Type Checking */
-    "strict": true,
-    "noImplicitAny": true,
-    "strictNullChecks": true,
-    "strictFunctionTypes": true,
-    "strictBindCallApply": true,
-    "strictPropertyInitialization": true,
-    "noImplicitThis": true,
-    "alwaysStrict": true,
-    "noUnusedLocals": false,
-    "noUnusedParameters": true,
-    "noImplicitReturns": true,
-    "noFallthroughCasesInSwitch": true,
-    
-    /* Interop Constraints */
-    "allowSyntheticDefaultImports": true,
-    "forceConsistentCasingInFileNames": true,
-    
-    /* Skip Lib Check */
-    "skipLibCheck": true,
-    "jsx": "react-jsx"
-  },
-  "include": [
-    "src/**/*.ts",
-    "src/**/*.tsx"
-  ],
-  "exclude": [
-    "node_modules",
-    "dist",
-    "src/test.ts"
+  "files": [],
+  "references": [
+    { "path": "./tsconfig.app.json" },
+    { "path": "./tsconfig.node.json" }
   ]
 }
