@@ -1,2 +1,2 @@
-# Since 'rootDir' is set to 'dist', only files we DON'T want in dist need to be listed here.
-# In our case, that's nothing.
+# rootDir は gas/ に設定。push されるのは gas/ 以下のみ
+# gas/dist/index.html, gas/dist/main.js, gas/appsscript.json

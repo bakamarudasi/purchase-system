@@ -170,18 +170,30 @@ export class ApplicationService {
      * メールアドレスからユーザー名を取得（社員名簿から）
      */
     static getUserName(email: string): string | null {
+        return this.getUserProfile(email)?.name ?? null;
+    }
+
+    /**
+     * 社員名簿から名前と部署を取得
+     * 想定列: A=email, B=名前, C=部署
+     */
+    static getUserProfile(
+        email: string,
+    ): { name: string; department: string } | null {
+        if (!email) return null;
         try {
             const employeeSheet = this.getSheet(SHEET_NAMES.EMPLOYEE_LIST);
             const data = employeeSheet.getDataRange().getValues();
-            
-            const userRow = data.slice(1).find(row => row[0] === email);
 
-            if (userRow && userRow[1]) {
-                return userRow[1];
-            }
-            return null;
+            const userRow = data.slice(1).find(row => row[0] === email);
+            if (!userRow) return null;
+
+            const name = userRow[1] ? String(userRow[1]) : '';
+            const department = userRow[2] ? String(userRow[2]) : '';
+            if (!name && !department) return null;
+            return { name, department };
         } catch (e) {
-            Logger.log(`社員名簿からの名前取得エラー: ${e}`);
+            Logger.log(`社員名簿からのプロフィール取得エラー: ${e}`);
             return null;
         }
     }
