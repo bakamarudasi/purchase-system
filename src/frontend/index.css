@@ -1,21 +1,23 @@
-:root {
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
   font-family:
     -apple-system,
     BlinkMacSystemFont,
     'Segoe UI',
     Roboto,
+    Oxygen,
+    Ubuntu,
+    Cantarell,
+    'Helvetica Neue',
     sans-serif;
-  line-height: 1.5;
-  color-scheme: light;
-}
-
-body {
-  margin: 0;
-  min-height: 100vh;
-  background: #fafaf9;
-  color: #1c1917;
-}
-
-#root {
-  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }

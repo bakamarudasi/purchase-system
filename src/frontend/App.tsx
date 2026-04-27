@@ -1,44 +1,155 @@
-import { useEffect, useState } from 'react';
-import { GASClient } from 'gas-client';
-import type { Application } from '../backend/models/Application';
-import type * as serverFns from '../backend/serverFunctions';
-import './App.css';
-
-const { serverFunctions } = new GASClient<typeof serverFns>();
+import { useCallback, useEffect, useState } from 'react';
+import { ApplicationDetail } from './components/ApplicationDetail';
+import { ApplicationTable } from './components/ApplicationTable';
+import { FilterBar, type FilterKey } from './components/FilterBar';
+import { Header } from './components/Header';
+import { NewApplicationForm } from './components/NewApplicationForm';
+import { Statistics } from './components/Statistics';
+import { Toaster } from './components/Toaster';
+import { useApplications } from './hooks/useApplications';
+import { useToasts } from './hooks/useToasts';
+import { useVisibleTabs } from './hooks/useVisibleTabs';
+import type { Application, SortConfig } from './types';
 
 function App() {
-  const [apps, setApps] = useState<Application[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { toasts, pushToast } = useToasts();
 
+  const onError = useCallback(
+    (msg: string) => pushToast('error', msg),
+    [pushToast],
+  );
+
+  const { apps, stats, currentUser, approvers, loading, approve, reject, submitNew } =
+    useApplications(onError);
+
+  const [filter, setFilter] = useState<FilterKey>('all');
+  const [visibleTabs, setVisibleTabs] = useVisibleTabs();
+  const [sortConfig, setSortConfig] = useState<SortConfig>({
+    key: 'timestamp',
+    direction: 'descending',
+  });
+  const [selectedApp, setSelectedApp] = useState<Application | null>(null);
+  const [isNewAppFormOpen, setIsNewAppFormOpen] = useState(false);
+  const [isStatsCollapsed, setIsStatsCollapsed] = useState(false);
+
+  // 表示タブが OFF にされたら、その絞り込みは all に戻す
   useEffect(() => {
-    const load = async () => {
-      try {
-        if (import.meta.env.PROD) {
-          const data = await serverFunctions.getAllApplications();
-          setApps(data);
-        } else {
-          // 開発時のモックデータ
-          setApps([]);
-        }
-      } catch (e) {
-        setError(String(e));
-      } finally {
-        setLoading(false);
-      }
-    };
-    void load();
-  }, []);
+    if (filter !== 'all' && !visibleTabs[filter]) {
+      setFilter('all');
+    }
+  }, [filter, visibleTabs]);
 
-  if (loading) return <div>読み込み中...</div>;
-  if (error) return <div>エラー: {error}</div>;
+  const handleSort = (key: SortConfig['key']) => {
+    setSortConfig((prev) => ({
+      key,
+      direction:
+        prev.key === key && prev.direction === 'ascending'
+          ? 'descending'
+          : 'ascending',
+    }));
+  };
+
+  const handleApprove = async (rowIndex: number, comment: string) => {
+    try {
+      await approve(rowIndex, currentUser.email, comment);
+      setSelectedApp(null);
+      pushToast('success', '承認しました');
+    } catch (e) {
+      console.error('承認エラー:', e);
+      pushToast('error', '承認に失敗しました');
+    }
+  };
+
+  const handleReject = async (rowIndex: number, comment: string) => {
+    try {
+      await reject(rowIndex, currentUser.email, comment);
+      setSelectedApp(null);
+      pushToast('success', '却下しました');
+    } catch (e) {
+      console.error('却下エラー:', e);
+      pushToast('error', '却下に失敗しました');
+    }
+  };
+
+  const handleNewApplication = async (
+    data: Parameters<typeof submitNew>[0],
+  ) => {
+    try {
+      await submitNew(data);
+      setIsNewAppFormOpen(false);
+      pushToast('success', '新規申請が完了しました');
+    } catch (e) {
+      console.error('新規申請エラー:', e);
+      pushToast('error', '新規申請に失敗しました');
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-amber-50 via-orange-50 to-stone-100 flex items-center justify-center">
+        <div className="text-2xl text-stone-600">読み込み中...</div>
+      </div>
+    );
+  }
+
+  const filteredApps =
+    filter === 'all' ? apps : apps.filter((a) => a.status === filter);
 
   return (
-    <div className="app">
-      <h1>購入申請システム</h1>
-      <p>申請件数: {apps.length}</p>
-      {/* TODO: Phase C で旧 html/index.html のコンポーネントを移植 */}
-    </div>
+    <>
+      <div className="min-h-screen bg-gradient-to-br from-amber-50 via-orange-50 to-stone-100">
+        <Toaster toasts={toasts} />
+        <Header
+          currentUser={currentUser}
+          onNewApplication={() => setIsNewAppFormOpen(true)}
+        />
+
+        <div className="p-8">
+          <Statistics
+            stats={stats}
+            collapsed={isStatsCollapsed}
+            onToggle={() => setIsStatsCollapsed((v) => !v)}
+          />
+
+          <FilterBar
+            filter={filter}
+            stats={stats}
+            visibleTabs={visibleTabs}
+            onFilterChange={setFilter}
+            onVisibleTabsChange={setVisibleTabs}
+          />
+        </div>
+
+        <div className="px-8 pb-8">
+          <ApplicationTable
+            applications={filteredApps}
+            sortConfig={sortConfig}
+            onSort={handleSort}
+            onSelect={setSelectedApp}
+          />
+        </div>
+      </div>
+
+      {selectedApp && (
+        <ApplicationDetail
+          application={selectedApp}
+          currentUser={currentUser}
+          onClose={() => setSelectedApp(null)}
+          onApprove={handleApprove}
+          onReject={handleReject}
+        />
+      )}
+
+      {isNewAppFormOpen && (
+        <NewApplicationForm
+          currentUser={currentUser}
+          approvers={approvers}
+          onClose={() => setIsNewAppFormOpen(false)}
+          onSubmit={handleNewApplication}
+          onPushToast={pushToast}
+        />
+      )}
+    </>
   );
 }
 
