@@ -1,0 +1,21 @@
+# ビルド成果物
+gas/dist/
+dist/
+.vite/
+
+# 依存関係
+node_modules/
+
+# clasp 認証情報（重要：絶対にコミットしない）
+.clasp.json
+.clasprc.json
+
+# 環境変数
+.env
+.env.local
+.env.*.local
+
+# ログ
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

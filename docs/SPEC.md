@@ -4,7 +4,7 @@
 > 環境のセットアップ、ディレクトリ構成、API、スプレッドシート構造、
 > デプロイ手順までこの 1 ファイルで完結することを目指しています。
 
-最終更新: 2026-04 / Phase C 完了時点
+最終更新: 2026-04 / Phase C 完了 + ディレクトリ整理後
 
 ---
 
@@ -43,82 +43,89 @@ GAS の制約上、Web App は単一エンドポイント (`doGet`) で 1 つの
 
 ## 2. ディレクトリ構成
 
+リポジトリのルートは「人が読むもの」（仕様書・README）だけに留め、
+実装と設定はすべて `app/` 配下に格納する 2 階層構成。
+
 ```
-purchase-system/
-├── src/
-│   ├── backend/                    # GAS サーバー側 (TypeScript)
-│   │   ├── main.ts                 # エントリ。global へ関数を公開
-│   │   ├── config.ts               # シート名・列番号・定数・エラーメッセージ
-│   │   ├── models/
-│   │   │   └── Application.ts      # ドメイン型 (Application, Approver, ApplicationStatus)
-│   │   ├── services/
-│   │   │   ├── ApplicationService.ts  # スプレッドシート操作の中核
-│   │   │   └── index.ts
-│   │   ├── utils/
-│   │   │   ├── date.ts             # 日付整形
-│   │   │   ├── format.ts           # 数値整形 / safeParse / formatError
-│   │   │   └── index.ts
-│   │   └── serverFunctions/
-│   │       └── index.ts            # クライアントから呼べる API の窓口
-│   └── frontend/                   # React クライアント側
-│       ├── main.tsx                # エントリ
-│       ├── App.tsx                 # 状態を持ち、各コンポーネントを束ねるルート
-│       ├── index.css               # Tailwind ディレクティブ + 共通スタイル
-│       ├── vite-env.d.ts
-│       ├── components/             # プレゼンテーションコンポーネント
-│       │   ├── Header.tsx
-│       │   ├── Toaster.tsx
-│       │   ├── Statistics.tsx
-│       │   ├── FilterBar.tsx
-│       │   ├── ApplicationTable.tsx
-│       │   ├── ApplicationDetail.tsx
-│       │   ├── NewApplicationForm.tsx
-│       │   └── StatusBadge.tsx
-│       ├── hooks/                  # 再利用可能なロジック
-│       │   ├── useApplications.ts  # GAS API 呼び出し + 状態
-│       │   ├── useToasts.ts
-│       │   └── useVisibleTabs.ts
-│       ├── icons/
-│       │   └── index.tsx           # SVG アイコン群
-│       ├── types/
-│       │   └── index.ts            # フロント固有型 + バックエンド型の再エクスポート
-│       └── utils/
-│           └── format.ts           # formatDate / getDriveFileId / formatYen
-├── gas/
-│   ├── appsscript.json             # GAS プロジェクトマニフェスト
-│   └── dist/                       # ビルド成果物 (.gitignore 済)
-│       ├── index.html              # Vite が単一 HTML にバンドルした React アプリ
-│       └── main.js                 # rollup が GAS 用に整形したサーバーコード
-├── html/
-│   └── index.html                  # 旧フロント (Phase C 完了時点で参考資料化)
-├── docs/
-│   ├── SPEC.md                     # 本ドキュメント
+purchase-system/                    ← リポジトリのルート
+├── docs/                           # 仕様書・設計書
+│   ├── SPEC.md                     # 本ドキュメント (一次資料)
 │   ├── ARCHITECTURE.md             # 旧アーキテクチャ (参考)
 │   └── SYSTEM_OVERVIEW.md          # 旧システムガイド (参考)
-├── index.html                      # Vite 開発時のエントリ
-├── package.json
-├── package-lock.json               # 追跡対象 (再現性のため)
-├── tsconfig.json                   # ルート (app + node を参照するだけ)
-├── tsconfig.app.json               # フロント/バックエンド共通の TS 設定
-├── tsconfig.node.json              # vite.config 系の TS 設定
-├── vite.config.ts                  # 開発サーバー / Vitest 用
-├── vite.config.frontend.ts         # フロント用ビルド (gas/dist/index.html)
-├── vite.config.backend.ts          # サーバー用ビルド (gas/dist/main.js)
-├── tailwind.config.js              # Tailwind の設定
-├── postcss.config.js               # Tailwind を PostCSS に組み込む
-├── .clasp.json.example             # clasp 設定のテンプレ (.clasp.json は git 管理外)
-├── .claspignore
-├── .eslintrc.cjs / .prettierrc / .prettierignore
-└── .npmrc                          # legacy-peer-deps=true
+├── REVIEW.md                       # 過去のコードレビュー所見
+├── .gitignore                      # IDE/OS ファイルのみ。app 内は app/.gitignore
+└── app/                            # ★ 開発作業はすべてここで行う
+    ├── src/
+    │   ├── backend/                # GAS サーバー側 (TypeScript)
+    │   │   ├── main.ts             # エントリ。global へ関数を公開
+    │   │   ├── config.ts           # シート名・列番号・定数・エラーメッセージ
+    │   │   ├── models/
+    │   │   │   └── Application.ts  # ドメイン型 (Application, Approver, ApplicationStatus)
+    │   │   ├── services/
+    │   │   │   ├── ApplicationService.ts
+    │   │   │   └── index.ts
+    │   │   ├── utils/
+    │   │   │   ├── date.ts
+    │   │   │   ├── format.ts       # safeParse / formatError 等
+    │   │   │   └── index.ts
+    │   │   └── serverFunctions/
+    │   │       └── index.ts        # クライアントから呼べる API の窓口
+    │   └── frontend/               # React クライアント側
+    │       ├── main.tsx
+    │       ├── App.tsx             # 状態オーナー。子コンポーネントを束ねる
+    │       ├── index.css           # Tailwind ディレクティブ
+    │       ├── vite-env.d.ts
+    │       ├── components/
+    │       │   ├── Header.tsx
+    │       │   ├── Toaster.tsx
+    │       │   ├── Statistics.tsx
+    │       │   ├── FilterBar.tsx
+    │       │   ├── ApplicationTable.tsx
+    │       │   ├── ApplicationDetail.tsx
+    │       │   ├── NewApplicationForm.tsx
+    │       │   └── StatusBadge.tsx
+    │       ├── hooks/
+    │       │   ├── useApplications.ts
+    │       │   ├── useToasts.ts
+    │       │   └── useVisibleTabs.ts
+    │       ├── icons/index.tsx
+    │       ├── types/index.ts
+    │       └── utils/format.ts
+    ├── gas/
+    │   ├── appsscript.json         # GAS プロジェクトマニフェスト
+    │   └── dist/                   # ビルド成果物 (.gitignore 済)
+    │       ├── index.html          # Vite が単一 HTML にバンドルした React アプリ
+    │       └── main.js             # rollup が GAS 用に整形したサーバーコード
+    ├── html/
+    │   └── index.html              # 旧フロント (参考資料、いずれ削除)
+    ├── index.html                  # Vite 開発時のエントリ (root として読まれる)
+    ├── package.json
+    ├── package-lock.json           # 追跡対象 (再現性のため)
+    ├── tsconfig.json               # ルート (app + node を参照するだけ)
+    ├── tsconfig.app.json           # フロント/バックエンド共通の TS 設定
+    ├── tsconfig.node.json          # vite.config 系の TS 設定
+    ├── vite.config.ts              # 開発サーバー / Vitest 用
+    ├── vite.config.frontend.ts     # フロント用ビルド (gas/dist/index.html)
+    ├── vite.config.backend.ts      # サーバー用ビルド (gas/dist/main.js)
+    ├── tailwind.config.js
+    ├── postcss.config.js
+    ├── .gitignore                  # ビルド成果物・node_modules・.clasp.json
+    ├── .clasp.json.example         # clasp 設定のテンプレ (.clasp.json は git 管理外)
+    ├── .claspignore
+    ├── .eslintrc.cjs / .prettierrc / .prettierignore
+    └── .npmrc                      # legacy-peer-deps=true
 ```
 
 ### ファイル配置の原則
 
-- **`src/backend/` と `src/frontend/` は型を共有してよい**。`Application` のような
-  ドメイン型はバックエンド側で定義し、フロントは型インポートのみ。
+- **`docs/` は人が読む資料、`app/` は機械が動かすプロジェクト**。明確に分離。
+- **`npm` / `clasp` コマンドは `app/` 内で実行する**。ルート直下では package.json が
+  存在しないので動かない。
+- **`app/src/backend/` と `app/src/frontend/` は型を共有してよい**。`Application`
+  のようなドメイン型はバックエンド側で定義し、フロントは型インポートのみ。
 - **`serverFunctions/` のエクスポートが API 契約**。新しいフロント呼び出しを増やす
   ときはここに関数を追加し、`backend/main.ts` でも `global.xxx = xxx` を追記する。
-- **`gas/dist/` はビルド成果物**。手書き禁止。`clasp push` はここだけを送信する。
+- **`app/gas/dist/` はビルド成果物**。手書き禁止。`clasp push` はここだけを送信する。
 
 ---
 
@@ -343,7 +350,12 @@ const canDecide =
 
 ### 7.2 初回セットアップ
 
+> 以下の操作はすべて `app/` ディレクトリ内で行う。
+
 ```bash
+# 0. 作業ディレクトリへ
+cd app
+
 # 1. 依存インストール (.npmrc により legacy-peer-deps が自動付与される)
 npm install
 
@@ -374,6 +386,8 @@ npx clasp push
 ## 8. 開発フロー
 
 ### 8.1 npm スクリプト
+
+> いずれも `app/` ディレクトリ内で実行する。`cd app` を忘れずに。
 
 | コマンド | 内容 |
 | --- | --- |
@@ -434,7 +448,8 @@ npx clasp push
 
 | 症状 | 原因の候補 | 対処 |
 | --- | --- | --- |
-| `clasp push` で「No script found」 | `.clasp.json` の `scriptId` 不一致 | GAS プロジェクト URL から ID を取り直す |
+| `npm: command not found` 風のエラー | リポジトリのルートで実行している | `cd app` してから再実行 |
+| `clasp push` で「No script found」 | `app/.clasp.json` の `scriptId` 不一致 | GAS プロジェクト URL から ID を取り直す |
 | ビルド時 peer dep 警告 | `rollup-plugin-google-apps-script` が vite4 を要求 | `.npmrc` の `legacy-peer-deps=true` で解決済 |
 | `parseFileInfo` が "ファイル情報の取得に失敗" を返す | 承認者に Drive 閲覧権限が無い | フォルダを承認者全員に共有 |
 | 承認ボタンが表示されない | `Application.approver` (email) と `currentUser.email` が一致していない | 承認者リストに対象 email が登録されているか / `addApplication` 時に email を保存しているか確認 |
