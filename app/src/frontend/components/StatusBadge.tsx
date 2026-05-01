@@ -1,4 +1,11 @@
-import { CheckCircle, Clock, FileCheck, FileText, Send, X } from '../icons';
+import {
+  CheckCircle,
+  Clock,
+  FileCheck,
+  FileText,
+  Send,
+  X,
+} from '../icons';
 import type { ApplicationStatus } from '../types';
 
 interface Props {
@@ -11,17 +18,34 @@ interface BadgeStyle {
 }
 
 const styles: Record<string, BadgeStyle> = {
-  未対応: {
+  承認待ち: {
     className: 'bg-amber-100 text-amber-800 border-amber-300',
     icon: <Clock size={14} className="mr-1.5" />,
   },
-  承認: {
+  確認待ち: {
+    className: 'bg-sky-100 text-sky-800 border-sky-300',
+    icon: <Clock size={14} className="mr-1.5" />,
+  },
+  購入待ち: {
+    className: 'bg-violet-100 text-violet-800 border-violet-300',
+    icon: <Clock size={14} className="mr-1.5" />,
+  },
+  注文済: {
     className: 'bg-emerald-100 text-emerald-800 border-emerald-300',
     icon: <CheckCircle size={14} className="mr-1.5" />,
   },
   却下: {
     className: 'bg-rose-100 text-rose-800 border-rose-300',
     icon: <X size={14} />,
+  },
+  // 旧ステータス（互換用）
+  未対応: {
+    className: 'bg-amber-100 text-amber-800 border-amber-300',
+    icon: <Clock size={14} className="mr-1.5" />,
+  },
+  承認: {
+    className: 'bg-sky-100 text-sky-800 border-sky-300',
+    icon: <CheckCircle size={14} className="mr-1.5" />,
   },
   購入済: {
     className: 'bg-blue-100 text-blue-800 border-blue-300',
@@ -42,7 +66,7 @@ const styles: Record<string, BadgeStyle> = {
 };
 
 export function StatusBadge({ status }: Props) {
-  const config = styles[status] ?? styles['完了'];
+  const config = styles[status] ?? styles['承認待ち'];
   return (
     <span
       className={`inline-flex items-center justify-center px-3 py-1 rounded-full text-xs font-semibold border ${config.className}`}

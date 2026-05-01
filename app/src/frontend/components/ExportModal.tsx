@@ -13,11 +13,11 @@ type StatusFilter = 'all' | ApplicationStatus;
 
 const STATUS_OPTIONS: { value: StatusFilter; label: string }[] = [
   { value: 'all', label: 'すべて' },
-  { value: '未対応', label: '未対応' },
-  { value: '承認', label: '承認' },
+  { value: '承認待ち', label: '承認待ち' },
+  { value: '確認待ち', label: '確認待ち' },
+  { value: '購入待ち', label: '購入待ち' },
+  { value: '注文済', label: '注文済' },
   { value: '却下', label: '却下' },
-  { value: '購入済', label: '購入済' },
-  { value: '完了', label: '完了' },
 ];
 
 function todayIso(): string {

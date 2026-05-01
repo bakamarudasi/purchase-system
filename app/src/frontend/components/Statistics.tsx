@@ -15,6 +15,10 @@ interface Props {
 }
 
 export function Statistics({ stats, collapsed, onToggle }: Props) {
+  // 進行中（承認待ち + 確認待ち + 購入待ち）
+  const inProgress =
+    stats.pendingApproval + stats.pendingConfirmation + stats.pendingPurchase;
+
   return (
     <div className="mb-8">
       <div className="flex items-center justify-between mb-4">
@@ -44,22 +48,22 @@ export function Statistics({ stats, collapsed, onToggle }: Props) {
             <CompactCard
               icon={<Clock className="text-white" size={16} />}
               gradient="from-amber-500 to-orange-600"
-              value={stats.pending}
-              label="未対応"
+              value={inProgress}
+              label="進行中"
             />
             <Divider />
             <CompactCard
               icon={<CheckCircle className="text-white" size={16} />}
               gradient="from-emerald-500 to-green-600"
-              value={stats.approved}
-              label="承認済み"
+              value={stats.ordered}
+              label="注文済"
             />
             <Divider />
             <CompactCard
               icon={<BarChart3 className="text-white" size={16} />}
               gradient="from-amber-600 to-orange-700"
-              value={`¥${(stats.totalApprovedAmount / 10000).toFixed(0)}万`}
-              label="承認金額"
+              value={`¥${(stats.totalOrderedAmount / 10000).toFixed(0)}万`}
+              label="注文金額"
             />
           </div>
         </div>
@@ -85,25 +89,25 @@ export function Statistics({ stats, collapsed, onToggle }: Props) {
               要対応
             </div>
           }
-          value={stats.pending}
-          label="未対応"
+          value={inProgress}
+          label={`進行中 (承認${stats.pendingApproval}/確認${stats.pendingConfirmation}/購入${stats.pendingPurchase})`}
         />
         <DetailCard
           icon={<CheckCircle className="text-white" size={24} />}
           gradient="from-emerald-500 to-green-600"
           accent={
             <div className="text-xs text-emerald-600 font-semibold">
-              +{stats.approved}
+              +{stats.ordered}
             </div>
           }
-          value={stats.approved}
-          label="承認済み"
+          value={stats.ordered}
+          label="注文済"
         />
         <DetailCard
           icon={<BarChart3 className="text-white" size={24} />}
           gradient="from-amber-600 to-orange-700"
-          value={`¥${stats.totalApprovedAmount.toLocaleString()}`}
-          label="承認金額"
+          value={`¥${stats.totalOrderedAmount.toLocaleString()}`}
+          label="注文金額"
         />
       </div>
     </div>

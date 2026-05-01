@@ -1,13 +1,15 @@
 /**
  * 申請管理サービス
- * スプレッドシートとのデータ連携、承認・却下処理を担当
+ * スプレッドシートとのデータ連携、承認・確認・注文処理を担当
  */
 
 import {
     Application,
     ApplicationStatus,
     Approver,
+    Confirmer,
     FileInfo,
+    Purchaser,
 } from '../models/Application';
 import {
     SHEET_NAMES,
@@ -22,6 +24,17 @@ import { NotificationService } from './NotificationService';
 
 const COLUMN_COUNT = Object.keys(COLUMN_INDEX).length;
 const LOCK_TIMEOUT_MS = 10_000;
+
+/**
+ * 旧ステータス（未対応・承認）は新ステータスに正規化して扱う。
+ * 物理的なシート値はマイグレーション関数で書き換えるが、未マイグレ時の保険として
+ * パース時にも変換する。
+ */
+function normalizeStatus(raw: string): ApplicationStatus {
+    if (raw === '未対応') return STATUS.PENDING_APPROVAL;
+    if (raw === '承認') return STATUS.PENDING_CONFIRMATION;
+    return (raw || STATUS.PENDING_APPROVAL) as ApplicationStatus;
+}
 
 export class ApplicationService {
     /**
@@ -73,30 +86,132 @@ export class ApplicationService {
     }
 
     /**
-     * 未対応の申請のみを取得
+     * 承認待ちの申請のみを取得
      */
     static getPendingApplications(): Application[] {
-        return this.getApplicationsByStatus(STATUS.PENDING);
+        return this.getApplicationsByStatus(STATUS.PENDING_APPROVAL);
     }
 
     /**
-     * 申請を承認
-     * 承認者リストに登録されている操作者しか実行できない
+     * 申請を承認 → ステータスを「確認待ち」に進め、確認者全員にメール通知
      */
     static approveApplication(rowIndex: number, approver: string, comment: string): void {
         this.assertCallerIsApprover();
-        this.updateApplicationStatus(rowIndex, STATUS.APPROVED, approver, comment);
+        this.assertCurrentStatus(rowIndex, STATUS.PENDING_APPROVAL);
+        this.updateApprovalFields(rowIndex, STATUS.PENDING_CONFIRMATION, approver, comment);
+        this.notifyConfirmersByRow(rowIndex);
         this.notifyDecisionByRow(rowIndex, '承認', approver, comment);
     }
 
     /**
-     * 申請を却下
-     * 承認者リストに登録されている操作者しか実行できない
+     * 申請を却下（承認者のみ・承認待ち段階のみ）
      */
     static rejectApplication(rowIndex: number, approver: string, comment: string): void {
         this.assertCallerIsApprover();
-        this.updateApplicationStatus(rowIndex, STATUS.REJECTED, approver, comment);
+        this.assertCurrentStatus(rowIndex, STATUS.PENDING_APPROVAL);
+        this.updateApprovalFields(rowIndex, STATUS.REJECTED, approver, comment);
         this.notifyDecisionByRow(rowIndex, '却下', approver, comment);
+    }
+
+    /**
+     * 確認者が確認 → ステータスを「購入待ち」に進め、購入者全員にメール通知
+     */
+    static confirmApplication(rowIndex: number): void {
+        const callerEmail = Session.getActiveUser().getEmail();
+        if (!this.isConfirmer(callerEmail)) {
+            throw new Error('権限がありません: 確認者リストに登録されたユーザーのみ実行できます');
+        }
+        this.assertCurrentStatus(rowIndex, STATUS.PENDING_CONFIRMATION);
+
+        this.withLock(() => {
+            const sheet = this.getSheet(SHEET_NAMES.APPLICATIONS);
+            const now = new Date();
+            sheet.getRange(rowIndex, COLUMN_INDEX.STATUS + 1).setValue(STATUS.PENDING_PURCHASE);
+            sheet.getRange(rowIndex, COLUMN_INDEX.CONFIRMER + 1).setValue(callerEmail);
+            sheet.getRange(rowIndex, COLUMN_INDEX.CONFIRMED_DATE + 1).setValue(now);
+            SpreadsheetApp.flush();
+        });
+
+        this.notifyPurchasersByRow(rowIndex);
+    }
+
+    /**
+     * 購入者が注文済登録 → ステータスを「注文済」にし、申請者にメール通知
+     */
+    static markAsOrdered(rowIndex: number, actualAmount: number): void {
+        const callerEmail = Session.getActiveUser().getEmail();
+        if (!this.isPurchaser(callerEmail)) {
+            throw new Error('権限がありません: 購入者リストに登録されたユーザーのみ実行できます');
+        }
+        if (!Number.isFinite(actualAmount) || actualAmount < 0) {
+            throw new Error('実際金額は0以上の数値で入力してください');
+        }
+        this.assertCurrentStatus(rowIndex, STATUS.PENDING_PURCHASE);
+
+        const app = this.getApplicationByRowIndex(rowIndex);
+        if (!app) throw new Error(ERROR_MESSAGES.ORDER_FAILED);
+        const diff = actualAmount - app.totalPrice;
+
+        this.withLock(() => {
+            const sheet = this.getSheet(SHEET_NAMES.APPLICATIONS);
+            const now = new Date();
+            sheet.getRange(rowIndex, COLUMN_INDEX.STATUS + 1).setValue(STATUS.ORDERED);
+            sheet.getRange(rowIndex, COLUMN_INDEX.PURCHASER + 1).setValue(callerEmail);
+            sheet.getRange(rowIndex, COLUMN_INDEX.ORDERED_DATE + 1).setValue(now);
+            sheet.getRange(rowIndex, COLUMN_INDEX.ACTUAL_AMOUNT + 1).setValue(actualAmount);
+            sheet.getRange(rowIndex, COLUMN_INDEX.AMOUNT_DIFF + 1).setValue(diff);
+            SpreadsheetApp.flush();
+        });
+
+        this.notifyOrderedByRow(rowIndex, callerEmail, actualAmount, diff);
+    }
+
+    /**
+     * 確認者全員にメール通知
+     */
+    private static notifyConfirmersByRow(rowIndex: number): void {
+        try {
+            const app = this.getApplicationByRowIndex(rowIndex);
+            if (!app) return;
+            const emails = this.getConfirmerList().map((c) => c.email).filter((e) => !!e);
+            NotificationService.notifyConfirmers(app, emails);
+        } catch (e) {
+            Logger.log(`確認者通知の準備エラー: ${formatError(e)}`);
+        }
+    }
+
+    /**
+     * 購入者全員にメール通知
+     */
+    private static notifyPurchasersByRow(rowIndex: number): void {
+        try {
+            const app = this.getApplicationByRowIndex(rowIndex);
+            if (!app) return;
+            const emails = this.getPurchaserList().map((p) => p.email).filter((e) => !!e);
+            NotificationService.notifyPurchasers(app, emails);
+        } catch (e) {
+            Logger.log(`購入者通知の準備エラー: ${formatError(e)}`);
+        }
+    }
+
+    /**
+     * 申請者に注文済メールを通知
+     */
+    private static notifyOrderedByRow(
+        rowIndex: number,
+        purchaser: string,
+        actualAmount: number,
+        diff: number,
+    ): void {
+        try {
+            const app = this.getApplicationByRowIndex(rowIndex);
+            if (!app) return;
+            const applicantEmail = this.getEmailByName(app.name);
+            if (!applicantEmail) return;
+            NotificationService.notifyOrdered(app, applicantEmail, purchaser, actualAmount, diff);
+        } catch (e) {
+            Logger.log(`注文済通知の準備エラー: ${formatError(e)}`);
+        }
     }
 
     /**
@@ -122,6 +237,7 @@ export class ApplicationService {
 
     /**
      * 一括承認/却下の戻り値
+     * 「承認」→確認待ちに進め確認者通知、「却下」→却下し申請者通知
      */
     static processBulk(
         rowIndices: number[],
@@ -130,7 +246,7 @@ export class ApplicationService {
         comment: string,
     ): { success: number[]; failed: { rowIndex: number; error: string }[] } {
         this.assertCallerIsApprover();
-        const status = action === 'approve' ? STATUS.APPROVED : STATUS.REJECTED;
+        const newStatus = action === 'approve' ? STATUS.PENDING_CONFIRMATION : STATUS.REJECTED;
         const success: number[] = [];
         const failed: { rowIndex: number; error: string }[] = [];
 
@@ -143,7 +259,15 @@ export class ApplicationService {
                     if (rowIndex < 2) {
                         throw new Error(ERROR_MESSAGES.INVALID_ROW_INDEX);
                     }
-                    sheet.getRange(rowIndex, COLUMN_INDEX.STATUS + 1).setValue(status);
+                    // 承認待ち以外は対象外
+                    const currentStatus = String(
+                        sheet.getRange(rowIndex, COLUMN_INDEX.STATUS + 1).getValue() ?? '',
+                    );
+                    const normalized = normalizeStatus(currentStatus);
+                    if (normalized !== STATUS.PENDING_APPROVAL) {
+                        throw new Error(`このステータスでは操作できません: ${currentStatus}`);
+                    }
+                    sheet.getRange(rowIndex, COLUMN_INDEX.STATUS + 1).setValue(newStatus);
                     sheet.getRange(rowIndex, COLUMN_INDEX.APPROVER + 1).setValue(approver);
                     sheet.getRange(rowIndex, COLUMN_INDEX.APPROVAL_DATE + 1).setValue(now);
                     sheet.getRange(rowIndex, COLUMN_INDEX.COMMENT + 1).setValue(comment);
@@ -155,13 +279,49 @@ export class ApplicationService {
             SpreadsheetApp.flush();
         });
 
-        // ロック外でメール通知（成功した行に対してのみ、申請者へ）
+        // ロック外でメール通知
         const decisionLabel: '承認' | '却下' = action === 'approve' ? '承認' : '却下';
         for (const rowIndex of success) {
             this.notifyDecisionByRow(rowIndex, decisionLabel, approver, comment);
+            if (action === 'approve') {
+                this.notifyConfirmersByRow(rowIndex);
+            }
         }
 
         return { success, failed };
+    }
+
+    /**
+     * 旧データ（未対応 / 承認）を新ステータスに移行する。
+     * 初回デプロイ時に手動実行する想定。
+     * 戻り値: 移行件数の内訳
+     */
+    static migrateLegacyStatuses(): { pending: number; approved: number } {
+        let pending = 0;
+        let approved = 0;
+        this.withLock(() => {
+            const sheet = this.getSheet(SHEET_NAMES.APPLICATIONS);
+            const lastRow = sheet.getLastRow();
+            if (lastRow < 2) return;
+            const range = sheet.getRange(2, COLUMN_INDEX.STATUS + 1, lastRow - 1, 1);
+            const values = range.getValues();
+            const updated = values.map((row) => {
+                const v = String(row[0] ?? '');
+                if (v === '未対応') {
+                    pending++;
+                    return [STATUS.PENDING_APPROVAL];
+                }
+                if (v === '承認') {
+                    approved++;
+                    return [STATUS.PENDING_CONFIRMATION];
+                }
+                return [row[0]];
+            });
+            range.setValues(updated);
+            SpreadsheetApp.flush();
+        });
+        Logger.log(`マイグレーション完了: 未対応=${pending}件, 承認=${approved}件`);
+        return { pending, approved };
     }
 
     /**
@@ -172,6 +332,27 @@ export class ApplicationService {
         const callerEmail = Session.getActiveUser().getEmail();
         if (!this.isApprover(callerEmail)) {
             throw new Error('権限がありません: 承認者リストに登録されたユーザーのみ実行できます');
+        }
+    }
+
+    /**
+     * 指定行の現在ステータスが期待通りか検証する。
+     * 競合状態（他ユーザーが先に処理）の検出にも使う。
+     */
+    private static assertCurrentStatus(
+        rowIndex: number,
+        expected: ApplicationStatus,
+    ): void {
+        if (rowIndex < 2) {
+            throw new Error(ERROR_MESSAGES.INVALID_ROW_INDEX);
+        }
+        const sheet = this.getSheet(SHEET_NAMES.APPLICATIONS);
+        const raw = String(
+            sheet.getRange(rowIndex, COLUMN_INDEX.STATUS + 1).getValue() ?? '',
+        );
+        const current = normalizeStatus(raw);
+        if (current !== expected) {
+            throw new Error(`このステータスでは操作できません: ${raw}`);
         }
     }
 
@@ -212,10 +393,16 @@ export class ApplicationService {
             data.reason,                // H: 購入理由
             fileUrl,                    // I: 添付ファイルURL
             data.productUrl || '',      // J: 購入商品URL
-            STATUS.PENDING,             // K: ステータス（初期値は未対応）
+            STATUS.PENDING_APPROVAL,    // K: ステータス（初期値は承認待ち）
             approver,                   // L: 承認者 (email)
             '',                         // M: 承認日
             '',                         // N: コメント
+            '',                         // O: 確認者
+            '',                         // P: 確認日
+            '',                         // Q: 購入者
+            '',                         // R: 注文日
+            '',                         // S: 実際金額
+            '',                         // T: 差額
         ];
 
         const newRowIndex = this.withLock(() => {
@@ -237,10 +424,16 @@ export class ApplicationService {
             reason: data.reason,
             productUrl: data.productUrl || null,
             fileInfo: fileUrl ? this.parseFileInfo(fileUrl) : null,
-            status: STATUS.PENDING,
+            status: STATUS.PENDING_APPROVAL,
             approver,
             approvalDate: null,
-            comment: ''
+            comment: '',
+            confirmer: '',
+            confirmedDate: null,
+            purchaser: '',
+            orderedDate: null,
+            actualAmount: null,
+            amountDiff: null,
         };
 
         // 承認者にメール通知（失敗してもアプリは止めない）
@@ -253,10 +446,31 @@ export class ApplicationService {
      * 承認者リストを取得
      */
     static getApproverList(): Approver[] {
+        return this.getMemberList(SHEET_NAMES.APPROVER_LIST);
+    }
+
+    /**
+     * 確認者リストを取得
+     */
+    static getConfirmerList(): Confirmer[] {
+        return this.getMemberList(SHEET_NAMES.CONFIRMER_LIST);
+    }
+
+    /**
+     * 購入者リストを取得
+     */
+    static getPurchaserList(): Purchaser[] {
+        return this.getMemberList(SHEET_NAMES.PURCHASER_LIST);
+    }
+
+    /**
+     * 共通: 「メール, 名前」2列のシートからメンバーを取得
+     */
+    private static getMemberList(sheetName: string): Approver[] {
         try {
-            const approverSheet = this.getSheet(SHEET_NAMES.APPROVER_LIST);
+            const sheet = this.getSheet(sheetName);
             // 想定列: A=email, B=名前 (2 行目以降)
-            const data = approverSheet.getRange('A2:B').getValues();
+            const data = sheet.getRange('A2:B').getValues();
             return data
                 .filter(row => row[0] && row[1])
                 .map(row => ({
@@ -264,21 +478,32 @@ export class ApplicationService {
                     name: String(row[1]),
                 }));
         } catch (e) {
-            Logger.log(`承認者リストの取得エラー: ${formatError(e)}`);
+            Logger.log(`${sheetName}の取得エラー: ${formatError(e)}`);
             return [];
         }
     }
 
     /**
-     * email が承認者リストに登録されているかどうか
-     * 大文字小文字は区別しない（ユーザー入力ゆれ対策）
+     * email が指定リストに登録されているかどうか
      */
-    static isApprover(email: string): boolean {
+    private static isMemberOf(sheetName: string, email: string): boolean {
         if (!email) return false;
         const target = email.trim().toLowerCase();
-        return this.getApproverList().some(
-            (a) => a.email.trim().toLowerCase() === target,
+        return this.getMemberList(sheetName).some(
+            (m) => m.email.trim().toLowerCase() === target,
         );
+    }
+
+    static isApprover(email: string): boolean {
+        return this.isMemberOf(SHEET_NAMES.APPROVER_LIST, email);
+    }
+
+    static isConfirmer(email: string): boolean {
+        return this.isMemberOf(SHEET_NAMES.CONFIRMER_LIST, email);
+    }
+
+    static isPurchaser(email: string): boolean {
+        return this.isMemberOf(SHEET_NAMES.PURCHASER_LIST, email);
     }
 
     /**
@@ -287,23 +512,7 @@ export class ApplicationService {
      */
     static addApprover(email: string, name: string): Approver[] {
         this.assertCallerIsApprover();
-        const cleanEmail = (email || '').trim();
-        const cleanName = (name || '').trim();
-        if (!cleanEmail || !cleanName) {
-            throw new Error('email と name は必須です');
-        }
-        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
-            throw new Error('email の形式が正しくありません');
-        }
-        if (this.isApprover(cleanEmail)) {
-            return this.getApproverList();
-        }
-        this.withLock(() => {
-            const sheet = this.getSheet(SHEET_NAMES.APPROVER_LIST);
-            sheet.appendRow([cleanEmail, cleanName]);
-            SpreadsheetApp.flush();
-        });
-        return this.getApproverList();
+        return this.appendMember(SHEET_NAMES.APPROVER_LIST, email, name);
     }
 
     /**
@@ -313,15 +522,68 @@ export class ApplicationService {
     static removeApprover(email: string): Approver[] {
         this.assertCallerIsApprover();
         const target = (email || '').trim().toLowerCase();
-        if (!target) throw new Error('email は必須です');
-
         const callerEmail = Session.getActiveUser().getEmail().toLowerCase();
         if (target === callerEmail) {
             throw new Error('自分自身は削除できません');
         }
+        return this.removeMember(SHEET_NAMES.APPROVER_LIST, email);
+    }
 
+    static addConfirmer(email: string, name: string): Confirmer[] {
+        this.assertCallerIsApprover();
+        return this.appendMember(SHEET_NAMES.CONFIRMER_LIST, email, name);
+    }
+
+    static removeConfirmer(email: string): Confirmer[] {
+        this.assertCallerIsApprover();
+        return this.removeMember(SHEET_NAMES.CONFIRMER_LIST, email);
+    }
+
+    static addPurchaser(email: string, name: string): Purchaser[] {
+        this.assertCallerIsApprover();
+        return this.appendMember(SHEET_NAMES.PURCHASER_LIST, email, name);
+    }
+
+    static removePurchaser(email: string): Purchaser[] {
+        this.assertCallerIsApprover();
+        return this.removeMember(SHEET_NAMES.PURCHASER_LIST, email);
+    }
+
+    /**
+     * 共通: メンバー追加
+     */
+    private static appendMember(
+        sheetName: string,
+        email: string,
+        name: string,
+    ): Approver[] {
+        const cleanEmail = (email || '').trim();
+        const cleanName = (name || '').trim();
+        if (!cleanEmail || !cleanName) {
+            throw new Error('email と name は必須です');
+        }
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+            throw new Error('email の形式が正しくありません');
+        }
+        if (this.isMemberOf(sheetName, cleanEmail)) {
+            return this.getMemberList(sheetName);
+        }
         this.withLock(() => {
-            const sheet = this.getSheet(SHEET_NAMES.APPROVER_LIST);
+            const sheet = this.getSheet(sheetName);
+            sheet.appendRow([cleanEmail, cleanName]);
+            SpreadsheetApp.flush();
+        });
+        return this.getMemberList(sheetName);
+    }
+
+    /**
+     * 共通: メンバー削除
+     */
+    private static removeMember(sheetName: string, email: string): Approver[] {
+        const target = (email || '').trim().toLowerCase();
+        if (!target) throw new Error('email は必須です');
+        this.withLock(() => {
+            const sheet = this.getSheet(sheetName);
             const data = sheet.getRange('A2:B').getValues();
             for (let i = 0; i < data.length; i++) {
                 if (String(data[i][0]).trim().toLowerCase() === target) {
@@ -331,7 +593,7 @@ export class ApplicationService {
                 }
             }
         });
-        return this.getApproverList();
+        return this.getMemberList(sheetName);
     }
 
     /**
@@ -391,34 +653,40 @@ export class ApplicationService {
         if (!apps) {
             return {
                 total: 0,
-                pending: 0,
-                approved: 0,
+                pendingApproval: 0,
+                pendingConfirmation: 0,
+                pendingPurchase: 0,
+                ordered: 0,
                 rejected: 0,
-                totalApprovedAmount: 0,
+                totalOrderedAmount: 0,
             };
         }
 
-        const pending = apps.filter(a => a.status === STATUS.PENDING).length;
-        const approved = apps.filter(a => a.status === STATUS.APPROVED).length;
+        const pendingApproval = apps.filter(a => a.status === STATUS.PENDING_APPROVAL).length;
+        const pendingConfirmation = apps.filter(a => a.status === STATUS.PENDING_CONFIRMATION).length;
+        const pendingPurchase = apps.filter(a => a.status === STATUS.PENDING_PURCHASE).length;
+        const ordered = apps.filter(a => a.status === STATUS.ORDERED).length;
         const rejected = apps.filter(a => a.status === STATUS.REJECTED).length;
 
-        const totalApprovedAmount = apps
-            .filter(a => a.status === STATUS.APPROVED)
-            .reduce((sum, a) => sum + a.totalPrice, 0);
+        const totalOrderedAmount = apps
+            .filter(a => a.status === STATUS.ORDERED)
+            .reduce((sum, a) => sum + (a.actualAmount ?? a.totalPrice), 0);
 
         return {
             total: apps.length,
-            pending,
-            approved,
+            pendingApproval,
+            pendingConfirmation,
+            pendingPurchase,
+            ordered,
             rejected,
-            totalApprovedAmount,
+            totalOrderedAmount,
         };
     }
 
     /**
-     * 申請ステータスを更新（内部処理）
+     * 承認系フィールドを更新（ステータス・承認者・承認日・コメント）
      */
-    private static updateApplicationStatus(
+    private static updateApprovalFields(
         rowIndex: number,
         status: ApplicationStatus,
         approver: string,
@@ -458,6 +726,9 @@ export class ApplicationService {
             const productUrlRaw = row[COLUMN_INDEX.PRODUCT_URL];
             const productUrl = productUrlRaw ? String(productUrlRaw) : null;
 
+            const actualAmountRaw = row[COLUMN_INDEX.ACTUAL_AMOUNT];
+            const amountDiffRaw = row[COLUMN_INDEX.AMOUNT_DIFF];
+
             const app: Application = {
                 rowIndex,
                 timestamp: this.parseDate(timestamp)?.toISOString() ?? null,
@@ -470,10 +741,22 @@ export class ApplicationService {
                 reason: String(row[COLUMN_INDEX.REASON] ?? ''),
                 productUrl,
                 fileInfo: fileUrl ? this.parseFileInfo(String(fileUrl)) : null,
-                status: (row[COLUMN_INDEX.STATUS] || STATUS.PENDING) as ApplicationStatus,
+                status: normalizeStatus(String(row[COLUMN_INDEX.STATUS] ?? '')),
                 approver: String(row[COLUMN_INDEX.APPROVER] ?? ''),
                 approvalDate: this.parseDate(row[COLUMN_INDEX.APPROVAL_DATE])?.toISOString() ?? null,
                 comment: String(row[COLUMN_INDEX.COMMENT] ?? ''),
+                confirmer: String(row[COLUMN_INDEX.CONFIRMER] ?? ''),
+                confirmedDate: this.parseDate(row[COLUMN_INDEX.CONFIRMED_DATE])?.toISOString() ?? null,
+                purchaser: String(row[COLUMN_INDEX.PURCHASER] ?? ''),
+                orderedDate: this.parseDate(row[COLUMN_INDEX.ORDERED_DATE])?.toISOString() ?? null,
+                actualAmount:
+                    actualAmountRaw === '' || actualAmountRaw == null
+                        ? null
+                        : safeParseFloat(actualAmountRaw as string | number, 0),
+                amountDiff:
+                    amountDiffRaw === '' || amountDiffRaw == null
+                        ? null
+                        : safeParseFloat(amountDiffRaw as string | number, 0),
             };
 
             return app;

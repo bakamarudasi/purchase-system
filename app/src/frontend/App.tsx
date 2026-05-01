@@ -34,14 +34,22 @@ function App() {
     stats,
     currentUser,
     approvers,
+    confirmers,
+    purchasers,
     loading,
     approve,
     reject,
+    confirmApp,
+    markOrdered,
     submitNew,
     discardOptimistic,
     processBulk,
     addApprover,
     removeApprover,
+    addConfirmer,
+    removeConfirmer,
+    addPurchaser,
+    removePurchaser,
   } = useApplications(onError);
 
   // ロールが取れるまでは仮で list を入れておき、確定後に出し分け
@@ -63,14 +71,14 @@ function App() {
   const [isExportOpen, setIsExportOpen] = useState(false);
 
   const pendingForMeCount = apps.filter(
-    (a) => a.status === '未対応' && a.approver === currentUser.email,
+    (a) => a.status === '承認待ち' && a.approver === currentUser.email,
   ).length;
 
   const anomalies = useAnomalies(apps);
 
   const handlePendingForMeClick = () => {
     setView('list');
-    setFilter('未対応');
+    setFilter('承認待ち');
     setMyPendingOnly(true);
   };
 
@@ -134,7 +142,7 @@ function App() {
     try {
       await approve(rowIndex, currentUser.email, comment);
       setSelectedApp(null);
-      pushToast('success', '承認しました');
+      pushToast('success', '承認しました（確認者に通知済）');
     } catch (e) {
       console.error('承認エラー:', e);
       pushToast('error', '承認に失敗しました');
@@ -149,6 +157,28 @@ function App() {
     } catch (e) {
       console.error('却下エラー:', e);
       pushToast('error', '却下に失敗しました');
+    }
+  };
+
+  const handleConfirm = async (rowIndex: number) => {
+    try {
+      await confirmApp(rowIndex, currentUser.email);
+      setSelectedApp(null);
+      pushToast('success', '確認しました（購入者に通知済）');
+    } catch (e) {
+      console.error('確認エラー:', e);
+      pushToast('error', '確認処理に失敗しました');
+    }
+  };
+
+  const handleMarkOrdered = async (rowIndex: number, actualAmount: number) => {
+    try {
+      await markOrdered(rowIndex, currentUser.email, actualAmount);
+      setSelectedApp(null);
+      pushToast('success', '注文済として登録しました（申請者に通知済）');
+    } catch (e) {
+      console.error('注文済登録エラー:', e);
+      pushToast('error', '注文済の登録に失敗しました');
     }
   };
 
@@ -240,7 +270,7 @@ function App() {
             </div>
 
             <div className="px-3 md:px-8 pb-8">
-              {currentUser.role === 'admin' && (
+              {currentUser.isApprover && (
                 <BulkActionBar
                   count={selectedRowIndices.size}
                   onApprove={(c) => handleBulk('approve', c)}
@@ -254,10 +284,10 @@ function App() {
                 onSort={handleSort}
                 onSelect={setSelectedApp}
                 selectedRowIndices={
-                  currentUser.role === 'admin' ? selectedRowIndices : undefined
+                  currentUser.isApprover ? selectedRowIndices : undefined
                 }
                 onSelectionChange={
-                  currentUser.role === 'admin' ? setSelectedRowIndices : undefined
+                  currentUser.isApprover ? setSelectedRowIndices : undefined
                 }
                 anomalies={anomalies}
               />
@@ -290,8 +320,14 @@ function App() {
             <Settings
               currentUser={currentUser}
               approvers={approvers}
-              onAdd={addApprover}
-              onRemove={removeApprover}
+              confirmers={confirmers}
+              purchasers={purchasers}
+              onAddApprover={addApprover}
+              onRemoveApprover={removeApprover}
+              onAddConfirmer={addConfirmer}
+              onRemoveConfirmer={removeConfirmer}
+              onAddPurchaser={addPurchaser}
+              onRemovePurchaser={removePurchaser}
               onPushToast={pushToast}
             />
           </div>
@@ -324,6 +360,8 @@ function App() {
                 }
               : handleReject
           }
+          onConfirm={handleConfirm}
+          onMarkOrdered={handleMarkOrdered}
         />
       )}
 

@@ -67,7 +67,7 @@ export function ApplicationTable({
 
   // 一括選択のために、選択可能な行（pending かつ楽観UIでない行）の rowIndex を抽出
   const selectableRowIndices = sorted
-    .filter((a) => a.status === '未対応' && !a.clientStatus)
+    .filter((a) => a.status === '承認待ち' && !a.clientStatus)
     .map((a) => a.rowIndex);
   const allSelected =
     selectionEnabled &&
@@ -105,7 +105,7 @@ export function ApplicationTable({
       <ul className="md:hidden space-y-2">
         {sorted.map((app) => {
           const checkable =
-            selectionEnabled && app.status === '未対応' && !app.clientStatus;
+            selectionEnabled && app.status === '承認待ち' && !app.clientStatus;
           const checked = selectedRowIndices?.has(app.rowIndex) ?? false;
           const rowAnomalies = anomalies?.get(app.rowIndex);
           return (
@@ -233,7 +233,7 @@ export function ApplicationTable({
           <tbody>
             {sorted.map((app) => {
               const checkable =
-                selectionEnabled && app.status === '未対応' && !app.clientStatus;
+                selectionEnabled && app.status === '承認待ち' && !app.clientStatus;
               const checked = selectedRowIndices?.has(app.rowIndex) ?? false;
               return (
               <tr

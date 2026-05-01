@@ -11,6 +11,8 @@ interface Props {
   onClose: () => void;
   onApprove: (rowIndex: number, comment: string) => Promise<void>;
   onReject: (rowIndex: number, comment: string) => Promise<void>;
+  onConfirm: (rowIndex: number) => Promise<void>;
+  onMarkOrdered: (rowIndex: number, actualAmount: number) => Promise<void>;
   anomalies?: Anomaly[];
 }
 
@@ -20,18 +22,30 @@ export function ApplicationDetail({
   onClose,
   onApprove,
   onReject,
+  onConfirm,
+  onMarkOrdered,
   anomalies,
 }: Props) {
   const [comment, setComment] = useState('');
   const [isPreviewingPdf, setIsPreviewingPdf] = useState(false);
-  const [isDecisionLoading, setIsDecisionLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [actualAmountInput, setActualAmountInput] = useState<string>(
+    String(application.totalPrice),
+  );
 
-  // 承認可能判定: 申請が未対応かつ、ログインユーザの email が承認者と一致
-  // (旧コードの「名前」比較は破綻していたため email 比較に修正)
-  const canDecide =
-    application.status === '未対応' &&
+  // 承認可能判定: 承認待ち + ログイン中ユーザー = 当該申請の承認者
+  const canApprove =
+    application.status === '承認待ち' &&
     currentUser.email !== '' &&
     application.approver === currentUser.email;
+
+  // 確認可能判定: 確認待ち + ログイン中ユーザーが確認者リストに登録済み
+  const canConfirm =
+    application.status === '確認待ち' && currentUser.isConfirmer;
+
+  // 注文済登録可能判定: 購入待ち + ログイン中ユーザーが購入者リストに登録済み
+  const canMarkOrdered =
+    application.status === '購入待ち' && currentUser.isPurchaser;
 
   const fileId = application.fileInfo
     ? getDriveFileId(application.fileInfo.url)
@@ -39,20 +53,43 @@ export function ApplicationDetail({
   const canPreview = !!fileId;
 
   const handleApprove = async () => {
-    setIsDecisionLoading(true);
+    setIsLoading(true);
     try {
       await onApprove(application.rowIndex, comment);
     } finally {
-      setIsDecisionLoading(false);
+      setIsLoading(false);
     }
   };
 
   const handleReject = async () => {
-    setIsDecisionLoading(true);
+    setIsLoading(true);
     try {
       await onReject(application.rowIndex, comment);
     } finally {
-      setIsDecisionLoading(false);
+      setIsLoading(false);
+    }
+  };
+
+  const handleConfirm = async () => {
+    setIsLoading(true);
+    try {
+      await onConfirm(application.rowIndex);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleMarkOrdered = async () => {
+    const amount = Number(actualAmountInput);
+    if (!Number.isFinite(amount) || amount < 0) {
+      alert('実際金額は0以上の数値で入力してください');
+      return;
+    }
+    setIsLoading(true);
+    try {
+      await onMarkOrdered(application.rowIndex, amount);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -153,6 +190,28 @@ export function ApplicationDetail({
                       </span>
                     }
                   />
+                  {application.actualAmount != null && (
+                    <Row
+                      label="実際金額"
+                      value={
+                        <span className="font-semibold text-stone-800">
+                          ¥{application.actualAmount.toLocaleString()}
+                          {application.amountDiff != null && application.amountDiff !== 0 && (
+                            <span
+                              className={`ml-2 text-sm ${
+                                application.amountDiff > 0
+                                  ? 'text-rose-600'
+                                  : 'text-emerald-600'
+                              }`}
+                            >
+                              ({application.amountDiff > 0 ? '+' : ''}
+                              {application.amountDiff.toLocaleString()})
+                            </span>
+                          )}
+                        </span>
+                      }
+                    />
+                  )}
                   <Row
                     label="ステータス"
                     value={<StatusBadge status={application.status} />}
@@ -220,8 +279,8 @@ export function ApplicationDetail({
               </div>
             </div>
 
-            {canDecide && (
-              <div className="bg-stone-50 border-2 border-stone-200 rounded-2xl p-6">
+            {canApprove && (
+              <div className="bg-stone-50 border-2 border-stone-200 rounded-2xl p-6 mb-4">
                 <h3 className="text-sm font-semibold text-stone-600 uppercase tracking-wide mb-4">
                   承認アクション
                 </h3>
@@ -231,24 +290,75 @@ export function ApplicationDetail({
                   value={comment}
                   onChange={(e) => setComment(e.target.value)}
                   className="w-full px-4 py-3 bg-white border-2 border-stone-200 rounded-xl text-stone-800 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-amber-500 mb-4"
-                  disabled={isDecisionLoading}
+                  disabled={isLoading}
                 />
                 <div className="grid grid-cols-2 gap-4">
                   <button
                     onClick={handleApprove}
                     className="px-6 py-4 bg-gradient-to-r from-emerald-600 to-green-600 text-white rounded-xl font-semibold hover:from-emerald-700 hover:to-green-700 transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
-                    disabled={isDecisionLoading}
+                    disabled={isLoading}
                   >
-                    {isDecisionLoading ? '処理中...' : '✓ 承認する'}
+                    {isLoading ? '処理中...' : '✓ 承認する'}
                   </button>
                   <button
                     onClick={handleReject}
                     className="px-6 py-4 bg-gradient-to-r from-rose-600 to-red-600 text-white rounded-xl font-semibold hover:from-rose-700 hover:to-red-700 transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
-                    disabled={isDecisionLoading}
+                    disabled={isLoading}
                   >
-                    {isDecisionLoading ? '処理中...' : '✗ 却下する'}
+                    {isLoading ? '処理中...' : '✗ 却下する'}
                   </button>
                 </div>
+              </div>
+            )}
+
+            {canConfirm && (
+              <div className="bg-stone-50 border-2 border-stone-200 rounded-2xl p-6 mb-4">
+                <h3 className="text-sm font-semibold text-stone-600 uppercase tracking-wide mb-4">
+                  確認アクション
+                </h3>
+                <p className="text-sm text-stone-600 mb-4">
+                  内容に問題がなければ「確認」ボタンを押してください。購入者に購入依頼が通知されます。
+                </p>
+                <button
+                  onClick={handleConfirm}
+                  className="w-full px-6 py-4 bg-gradient-to-r from-sky-600 to-blue-600 text-white rounded-xl font-semibold hover:from-sky-700 hover:to-blue-700 transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                  disabled={isLoading}
+                >
+                  {isLoading ? '処理中...' : '✓ 確認する'}
+                </button>
+              </div>
+            )}
+
+            {canMarkOrdered && (
+              <div className="bg-stone-50 border-2 border-stone-200 rounded-2xl p-6 mb-4">
+                <h3 className="text-sm font-semibold text-stone-600 uppercase tracking-wide mb-4">
+                  注文済登録
+                </h3>
+                <p className="text-sm text-stone-600 mb-4">
+                  商品を購入したら、実際の購入金額を入力して「注文済」ボタンを押してください。申請者に通知されます。
+                </p>
+                <label className="block text-sm font-semibold text-stone-700 mb-2">
+                  実際金額 <span className="text-rose-600">*</span>
+                </label>
+                <div className="flex items-center gap-2 mb-4">
+                  <span className="text-stone-600">¥</span>
+                  <input
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={actualAmountInput}
+                    onChange={(e) => setActualAmountInput(e.target.value)}
+                    className="flex-1 px-4 py-3 bg-white border-2 border-stone-200 rounded-xl text-stone-800 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    disabled={isLoading}
+                  />
+                </div>
+                <button
+                  onClick={handleMarkOrdered}
+                  className="w-full px-6 py-4 bg-gradient-to-r from-violet-600 to-purple-600 text-white rounded-xl font-semibold hover:from-violet-700 hover:to-purple-700 transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                  disabled={isLoading}
+                >
+                  {isLoading ? '処理中...' : '📦 注文済として登録'}
+                </button>
               </div>
             )}
           </div>

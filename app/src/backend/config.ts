@@ -13,6 +13,10 @@ export const SHEET_NAMES = {
     EMPLOYEE_LIST: '社員名簿',
     /** 承認者リストシート */
     APPROVER_LIST: '承認者リスト',
+    /** 確認者リストシート（武藤さんなど） */
+    CONFIRMER_LIST: '確認者リスト',
+    /** 購入者リストシート（高橋さん、高松さんなど） */
+    PURCHASER_LIST: '購入者リスト',
     /** アーカイブ用の過去の申請シート */
     PAST_APPLICATIONS: '過去の申請',
 } as const;
@@ -36,17 +40,28 @@ export const COLUMN_INDEX = {
     APPROVER: 11,        // L列: 承認者
     APPROVAL_DATE: 12,   // M列: 承認日
     COMMENT: 13,         // N列: コメント
+    CONFIRMER: 14,       // O列: 確認者
+    CONFIRMED_DATE: 15,  // P列: 確認日
+    PURCHASER: 16,       // Q列: 購入者
+    ORDERED_DATE: 17,    // R列: 注文日
+    ACTUAL_AMOUNT: 18,   // S列: 実際金額
+    AMOUNT_DIFF: 19,     // T列: 差額（実際金額 - 申請合計）
 } as const;
 
 /**
  * ステータス値
  */
 export const STATUS = {
-    PENDING: '未対応',
-    APPROVED: '承認',
+    PENDING_APPROVAL: '承認待ち',
+    PENDING_CONFIRMATION: '確認待ち',
+    PENDING_PURCHASE: '購入待ち',
+    ORDERED: '注文済',
     REJECTED: '却下',
-    PURCHASED: '購入済',
-    CLEAR: '完了',
+    /** 旧ステータス（マイグレーション前データの互換用） */
+    LEGACY_PENDING: '未対応',
+    LEGACY_APPROVED: '承認',
+    LEGACY_PURCHASED: '購入済',
+    LEGACY_CLEAR: '完了',
 } as const;
 
 /**
@@ -88,6 +103,8 @@ export const ERROR_MESSAGES = {
     INVALID_FILE_TYPE: '許可されていないファイル形式です',
     APPROVAL_FAILED: '承認処理に失敗しました',
     REJECTION_FAILED: '却下処理に失敗しました',
+    CONFIRMATION_FAILED: '確認処理に失敗しました',
+    ORDER_FAILED: '注文済処理に失敗しました',
 } as const;
 
 /**

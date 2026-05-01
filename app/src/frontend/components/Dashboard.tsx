@@ -58,8 +58,8 @@ function buildMonthly(apps: Application[]): MonthlyBucket[] {
     const idx = indexByYm.get(ym);
     if (idx === undefined) continue;
     buckets[idx].count++;
-    if (a.status === '承認') {
-      buckets[idx].amount += a.totalPrice;
+    if (a.status === '注文済') {
+      buckets[idx].amount += a.actualAmount ?? a.totalPrice;
     }
   }
 
@@ -69,10 +69,10 @@ function buildMonthly(apps: Application[]): MonthlyBucket[] {
 function buildDepartmentRanking(apps: Application[]): DepartmentBucket[] {
   const map = new Map<string, DepartmentBucket>();
   for (const a of apps) {
-    if (a.status !== '承認') continue;
+    if (a.status !== '注文済') continue;
     const key = a.department || '(未設定)';
     const cur = map.get(key) ?? { name: key, amount: 0, count: 0 };
-    cur.amount += a.totalPrice;
+    cur.amount += a.actualAmount ?? a.totalPrice;
     cur.count++;
     map.set(key, cur);
   }
@@ -85,9 +85,16 @@ function calcLeadTime(apps: Application[]): { avgHours: number; sample: number }
   let totalMs = 0;
   let n = 0;
   for (const a of apps) {
-    if ((a.status === '承認' || a.status === '却下') && a.timestamp && a.approvalDate) {
+    // 完了系（注文済 or 却下）のリードタイムを集計
+    const endIso =
+      a.status === '注文済'
+        ? a.orderedDate
+        : a.status === '却下'
+          ? a.approvalDate
+          : null;
+    if (endIso && a.timestamp) {
       const t0 = new Date(a.timestamp).getTime();
-      const t1 = new Date(a.approvalDate).getTime();
+      const t1 = new Date(endIso).getTime();
       if (!isNaN(t0) && !isNaN(t1) && t1 >= t0) {
         totalMs += t1 - t0;
         n++;
@@ -121,11 +128,11 @@ export function Dashboard({ applications, scope, currentUser }: Props) {
     const yr = new Date().getFullYear();
     return scoped
       .filter((a) => {
-        if (a.status !== '承認' || !a.timestamp) return false;
+        if (a.status !== '注文済' || !a.timestamp) return false;
         const d = new Date(a.timestamp);
         return !isNaN(d.getTime()) && d.getFullYear() === yr;
       })
-      .reduce((sum, a) => sum + a.totalPrice, 0);
+      .reduce((sum, a) => sum + (a.actualAmount ?? a.totalPrice), 0);
   }, [scoped]);
 
   const statusBreakdown = useMemo(() => {
@@ -134,10 +141,21 @@ export function Dashboard({ applications, scope, currentUser }: Props) {
     let rejected = 0;
     let other = 0;
     for (const a of scoped) {
-      if (a.status === '未対応') pending++;
-      else if (a.status === '承認') approved++;
-      else if (a.status === '却下') rejected++;
-      else other++;
+      // 旧 "未対応" / 新 "承認待ち/確認待ち/購入待ち" を進行中として集計
+      if (
+        a.status === '承認待ち' ||
+        a.status === '確認待ち' ||
+        a.status === '購入待ち' ||
+        a.status === '未対応'
+      ) {
+        pending++;
+      } else if (a.status === '注文済' || a.status === '承認') {
+        approved++;
+      } else if (a.status === '却下') {
+        rejected++;
+      } else {
+        other++;
+      }
     }
     return { pending, approved, rejected, other };
   }, [scoped]);
@@ -403,8 +421,8 @@ function StatusDonut({
   breakdown: { pending: number; approved: number; rejected: number; other: number };
 }) {
   const segments: { label: string; value: number; color: string }[] = [
-    { label: '承認', value: breakdown.approved, color: '#10b981' },
-    { label: '未対応', value: breakdown.pending, color: '#f59e0b' },
+    { label: '注文済', value: breakdown.approved, color: '#10b981' },
+    { label: '進行中', value: breakdown.pending, color: '#f59e0b' },
     { label: '却下', value: breakdown.rejected, color: '#f43f5e' },
     { label: 'その他', value: breakdown.other, color: '#94a3b8' },
   ].filter((s) => s.value > 0);

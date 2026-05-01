@@ -14,9 +14,21 @@ import {
   getPendingApplications,
   approveApplication,
   rejectApplication,
+  confirmApplication,
+  markAsOrdered,
+  processBulk,
   addApplication,
   getStatistics,
   getApproverList,
+  addApprover,
+  removeApprover,
+  getConfirmerList,
+  addConfirmer,
+  removeConfirmer,
+  getPurchaserList,
+  addPurchaser,
+  removePurchaser,
+  migrateLegacyStatuses,
   getCurrentUser,
 } from './serverFunctions';
 
@@ -36,7 +48,19 @@ global.getApplicationsByStatus = getApplicationsByStatus;
 global.getPendingApplications = getPendingApplications;
 global.approveApplication = approveApplication;
 global.rejectApplication = rejectApplication;
+global.confirmApplication = confirmApplication;
+global.markAsOrdered = markAsOrdered;
+global.processBulk = processBulk;
 global.addApplication = addApplication;
 global.getStatistics = getStatistics;
 global.getApproverList = getApproverList;
+global.addApprover = addApprover;
+global.removeApprover = removeApprover;
+global.getConfirmerList = getConfirmerList;
+global.addConfirmer = addConfirmer;
+global.removeConfirmer = removeConfirmer;
+global.getPurchaserList = getPurchaserList;
+global.addPurchaser = addPurchaser;
+global.removePurchaser = removePurchaser;
+global.migrateLegacyStatuses = migrateLegacyStatuses;
 global.getCurrentUser = getCurrentUser;

@@ -4,8 +4,10 @@ import type { VisibleTabs } from '../types';
 const STORAGE_KEY = 'visibleTabs';
 const DEFAULT_TABS: VisibleTabs = {
   all: true,
-  未対応: true,
-  承認: true,
+  承認待ち: true,
+  確認待ち: true,
+  購入待ち: true,
+  注文済: true,
   却下: true,
 };
 

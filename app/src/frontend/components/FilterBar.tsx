@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Filter } from '../icons';
 import type { Statistics, VisibleTabs } from '../types';
 
-export type FilterKey = 'all' | '未対応' | '承認' | '却下';
+export type FilterKey = 'all' | '承認待ち' | '確認待ち' | '購入待ち' | '注文済' | '却下';
 
 interface Props {
   filter: FilterKey;
@@ -14,9 +14,19 @@ interface Props {
 
 const TABS: { key: FilterKey; label: string }[] = [
   { key: 'all', label: 'すべて' },
-  { key: '未対応', label: '未対応' },
-  { key: '承認', label: '承認済み' },
+  { key: '承認待ち', label: '承認待ち' },
+  { key: '確認待ち', label: '確認待ち' },
+  { key: '購入待ち', label: '購入待ち' },
+  { key: '注文済', label: '注文済' },
   { key: '却下', label: '却下' },
+];
+
+const TOGGLEABLE: Exclude<FilterKey, 'all'>[] = [
+  '承認待ち',
+  '確認待ち',
+  '購入待ち',
+  '注文済',
+  '却下',
 ];
 
 export function FilterBar({
@@ -32,10 +42,14 @@ export function FilterBar({
     switch (key) {
       case 'all':
         return stats.total;
-      case '未対応':
-        return stats.pending;
-      case '承認':
-        return stats.approved;
+      case '承認待ち':
+        return stats.pendingApproval;
+      case '確認待ち':
+        return stats.pendingConfirmation;
+      case '購入待ち':
+        return stats.pendingPurchase;
+      case '注文済':
+        return stats.ordered;
       case '却下':
         return stats.rejected;
     }
@@ -79,7 +93,7 @@ export function FilterBar({
         {configOpen && (
           <div className="absolute right-0 mt-2 w-56 bg-white border border-stone-200 rounded-xl shadow-xl p-3 z-10">
             <div className="text-xs font-semibold text-stone-500 mb-2">表示するタブ</div>
-            {(['未対応', '承認', '却下'] as const).map((k) => (
+            {TOGGLEABLE.map((k) => (
               <label
                 key={k}
                 className="flex items-center gap-2 py-1 text-sm text-stone-700"
@@ -91,7 +105,7 @@ export function FilterBar({
                     onVisibleTabsChange({ ...visibleTabs, [k]: e.target.checked })
                   }
                 />
-                {k === '承認' ? '承認済み' : k}
+                {k}
               </label>
             ))}
             <div className="mt-2 text-right">
