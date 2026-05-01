@@ -18,6 +18,7 @@ import {
     DEFAULT_CONFIG,
 } from '../config';
 import { safeParseInt, safeParseFloat, formatError } from '../utils/format';
+import { NotificationService } from './NotificationService';
 
 const COLUMN_COUNT = Object.keys(COLUMN_INDEX).length;
 const LOCK_TIMEOUT_MS = 10_000;
@@ -85,6 +86,7 @@ export class ApplicationService {
     static approveApplication(rowIndex: number, approver: string, comment: string): void {
         this.assertCallerIsApprover();
         this.updateApplicationStatus(rowIndex, STATUS.APPROVED, approver, comment);
+        this.notifyDecisionByRow(rowIndex, '承認', approver, comment);
     }
 
     /**
@@ -94,6 +96,28 @@ export class ApplicationService {
     static rejectApplication(rowIndex: number, approver: string, comment: string): void {
         this.assertCallerIsApprover();
         this.updateApplicationStatus(rowIndex, STATUS.REJECTED, approver, comment);
+        this.notifyDecisionByRow(rowIndex, '却下', approver, comment);
+    }
+
+    /**
+     * 申請者にメール通知（社員名簿で名前→メアドを逆引き）
+     * 失敗してもメイン処理は止めない
+     */
+    private static notifyDecisionByRow(
+        rowIndex: number,
+        decision: '承認' | '却下',
+        approver: string,
+        comment: string,
+    ): void {
+        try {
+            const app = this.getApplicationByRowIndex(rowIndex);
+            if (!app) return;
+            const applicantEmail = this.getEmailByName(app.name);
+            if (!applicantEmail) return;
+            NotificationService.notifyDecision(app, applicantEmail, decision, approver, comment);
+        } catch (e) {
+            Logger.log(`結果通知の準備エラー: ${formatError(e)}`);
+        }
     }
 
     /**
@@ -130,6 +154,12 @@ export class ApplicationService {
             }
             SpreadsheetApp.flush();
         });
+
+        // ロック外でメール通知（成功した行に対してのみ、申請者へ）
+        const decisionLabel: '承認' | '却下' = action === 'approve' ? '承認' : '却下';
+        for (const rowIndex of success) {
+            this.notifyDecisionByRow(rowIndex, decisionLabel, approver, comment);
+        }
 
         return { success, failed };
     }
@@ -213,6 +243,9 @@ export class ApplicationService {
             comment: ''
         };
 
+        // 承認者にメール通知（失敗してもアプリは止めない）
+        NotificationService.notifyNewApplication(newApplication, approver);
+
         return newApplication;
     }
 
@@ -253,6 +286,23 @@ export class ApplicationService {
      */
     static getUserName(email: string): string | null {
         return this.getUserProfile(email)?.name ?? null;
+    }
+
+    /**
+     * 名前からメールアドレスを逆引き（社員名簿から）
+     * 同名社員がいる場合は最初に見つかったものを返す
+     */
+    static getEmailByName(name: string): string | null {
+        if (!name) return null;
+        try {
+            const employeeSheet = this.getSheet(SHEET_NAMES.EMPLOYEE_LIST);
+            const data = employeeSheet.getDataRange().getValues();
+            const row = data.slice(1).find((r) => String(r[1]) === name);
+            return row && row[0] ? String(row[0]) : null;
+        } catch (e) {
+            Logger.log(`社員名簿からの email 逆引きエラー: ${formatError(e)}`);
+            return null;
+        }
     }
 
     /**
