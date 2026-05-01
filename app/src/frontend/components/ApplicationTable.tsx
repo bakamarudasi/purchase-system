@@ -100,8 +100,94 @@ export function ApplicationTable({
   };
 
   return (
-    <div className="bg-white/80 backdrop-blur border border-stone-200 rounded-2xl p-6 shadow-lg">
-      <div className="overflow-x-auto">
+    <div className="bg-white/80 backdrop-blur border border-stone-200 rounded-2xl p-3 md:p-6 shadow-lg">
+      {/* モバイル: カードレイアウト */}
+      <ul className="md:hidden space-y-2">
+        {sorted.map((app) => {
+          const checkable =
+            selectionEnabled && app.status === '未対応' && !app.clientStatus;
+          const checked = selectedRowIndices?.has(app.rowIndex) ?? false;
+          const rowAnomalies = anomalies?.get(app.rowIndex);
+          return (
+            <li
+              key={app.rowIndex}
+              className={`p-3 rounded-xl border cursor-pointer transition-colors ${
+                checked
+                  ? 'border-amber-400 bg-amber-50/70'
+                  : app.clientStatus === 'sending'
+                    ? 'border-sky-200 bg-sky-50/40 opacity-70'
+                    : app.clientStatus === 'failed'
+                      ? 'border-rose-200 bg-rose-50/40'
+                      : 'border-stone-200 hover:bg-amber-50/40'
+              }`}
+              onClick={() => onSelect(app)}
+            >
+              <div className="flex items-start gap-3">
+                {selectionEnabled && (
+                  <div
+                    className="pt-1 flex-shrink-0"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {checkable ? (
+                      <input
+                        type="checkbox"
+                        aria-label={`${app.itemName} を選択`}
+                        checked={checked}
+                        onChange={() => toggleOne(app.rowIndex)}
+                        className="w-5 h-5 accent-amber-600"
+                      />
+                    ) : (
+                      <span className="block w-5 text-center text-stone-300 text-xs">
+                        -
+                      </span>
+                    )}
+                  </div>
+                )}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="font-bold text-stone-800 flex items-center gap-2 min-w-0">
+                      <span className="truncate">{app.itemName}</span>
+                      {rowAnomalies && (
+                        <span
+                          title={rowAnomalies
+                            .map((x) => `⚠ ${x.message}`)
+                            .join('\n')}
+                          className="inline-flex items-center justify-center w-5 h-5 flex-shrink-0 rounded-full bg-amber-100 text-amber-700 border border-amber-300"
+                        >
+                          <AlertTriangle size={12} />
+                        </span>
+                      )}
+                    </div>
+                    <StatusBadge
+                      status={
+                        app.clientStatus === 'sending'
+                          ? '送信中'
+                          : app.clientStatus === 'failed'
+                            ? '送信失敗'
+                            : app.status
+                      }
+                    />
+                  </div>
+                  <div className="text-xs text-stone-500 mt-1">
+                    {app.name} ・ {app.department} ・ {formatDate(app.timestamp)}
+                  </div>
+                  <div className="flex items-center justify-between mt-2">
+                    <div className="text-xs text-stone-600">
+                      数量 {app.quantity}個
+                    </div>
+                    <div className="font-bold text-stone-800">
+                      ¥{app.totalPrice.toLocaleString()}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+
+      {/* デスクトップ: テーブル */}
+      <div className="hidden md:block overflow-x-auto">
         <table className="w-full">
           <thead className="sticky top-0 bg-white">
             <tr className="border-b border-stone-200">

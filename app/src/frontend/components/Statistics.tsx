@@ -66,8 +66,8 @@ export function Statistics({ stats, collapsed, onToggle }: Props) {
       )}
 
       <div
-        className={`grid grid-cols-4 gap-6 transition-all duration-300 overflow-hidden ${
-          collapsed ? 'max-h-0 opacity-0' : 'max-h-96 opacity-100'
+        className={`grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-6 transition-all duration-300 overflow-hidden ${
+          collapsed ? 'max-h-0 opacity-0' : 'max-h-[600px] opacity-100'
         }`}
       >
         <DetailCard
@@ -147,17 +147,19 @@ interface DetailCardProps {
 
 function DetailCard({ icon, gradient, accent, value, label }: DetailCardProps) {
   return (
-    <div className="bg-white/80 backdrop-blur border border-stone-200 rounded-2xl p-6 shadow-lg hover:shadow-xl transition-shadow">
-      <div className="flex items-center justify-between mb-4">
+    <div className="bg-white/80 backdrop-blur border border-stone-200 rounded-2xl p-4 md:p-6 shadow-lg hover:shadow-xl transition-shadow">
+      <div className="flex items-center justify-between mb-3 md:mb-4">
         <div
-          className={`w-12 h-12 bg-gradient-to-br ${gradient} rounded-xl flex items-center justify-center shadow-md`}
+          className={`w-10 h-10 md:w-12 md:h-12 bg-gradient-to-br ${gradient} rounded-xl flex items-center justify-center shadow-md`}
         >
           {icon}
         </div>
         {accent}
       </div>
-      <div className="text-3xl font-bold text-stone-800 mb-1">{value}</div>
-      <div className="text-sm text-stone-600">{label}</div>
+      <div className="text-xl md:text-3xl font-bold text-stone-800 mb-1 truncate">
+        {value}
+      </div>
+      <div className="text-xs md:text-sm text-stone-600">{label}</div>
     </div>
   );
 }

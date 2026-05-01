@@ -41,14 +41,15 @@ export function ViewSwitcher({ view, role, onChange }: Props) {
             role="tab"
             aria-selected={active}
             onClick={() => onChange(key)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+            title={label}
+            className={`flex items-center gap-2 px-3 md:px-4 py-2 rounded-lg text-sm font-semibold transition-all whitespace-nowrap ${
               active
                 ? 'bg-white text-amber-700 shadow-sm'
                 : 'text-stone-600 hover:text-stone-800'
             }`}
           >
             <Icon size={16} />
-            <span>{label}</span>
+            <span className="hidden sm:inline">{label}</span>
           </button>
         );
       })}

@@ -195,7 +195,7 @@ function App() {
 
         {view === 'list' && (
           <>
-            <div className="p-8">
+            <div className="p-3 md:p-8">
               <Statistics
                 stats={stats}
                 collapsed={isStatsCollapsed}
@@ -239,7 +239,7 @@ function App() {
               )}
             </div>
 
-            <div className="px-8 pb-8">
+            <div className="px-3 md:px-8 pb-8">
               {currentUser.role === 'admin' && (
                 <BulkActionBar
                   count={selectedRowIndices.size}
@@ -266,7 +266,7 @@ function App() {
         )}
 
         {view === 'mine' && (
-          <div className="p-8">
+          <div className="p-3 md:p-8">
             <MyHistory
               applications={apps}
               currentUser={currentUser}
@@ -276,7 +276,7 @@ function App() {
         )}
 
         {view === 'dashboard' && (
-          <div className="p-8">
+          <div className="p-3 md:p-8">
             <Dashboard
               applications={apps}
               scope={currentUser.role === 'admin' ? 'all' : 'self'}
@@ -286,7 +286,7 @@ function App() {
         )}
 
         {view === 'settings' && currentUser.role === 'admin' && (
-          <div className="p-8">
+          <div className="p-3 md:p-8">
             <Settings
               currentUser={currentUser}
               approvers={approvers}

@@ -189,14 +189,14 @@ export function NewApplicationForm({
 
   return (
     <div
-      className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-8 z-50"
+      className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-0 md:p-8 z-50"
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-3xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-hidden border-4 border-stone-200 flex flex-col"
+        className="bg-white rounded-none md:rounded-3xl shadow-2xl max-w-2xl w-full h-full md:h-auto md:max-h-[90vh] overflow-hidden md:border-4 md:border-stone-200 flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="p-8 pb-4 flex-shrink-0">
+        <div className="p-4 md:p-8 pb-2 md:pb-4 flex-shrink-0">
           <div className="flex justify-between items-center mb-6">
             <div>
               <h2 className="text-2xl font-bold text-stone-800">新規購入申請</h2>
@@ -253,7 +253,7 @@ export function NewApplicationForm({
             </div>
           )}
         </div>
-        <div className="px-8 pb-8 overflow-y-auto">
+        <div className="px-4 md:px-8 pb-4 md:pb-8 overflow-y-auto">
           <div className="space-y-6">
             <div>
               <label className="text-sm font-semibold text-stone-600 mb-2 block">
@@ -369,7 +369,7 @@ export function NewApplicationForm({
             </div>
           </div>
         </div>
-        <div className="p-8 pt-6 mt-auto bg-white border-t-2 border-stone-100 flex justify-end gap-4">
+        <div className="p-4 md:p-8 pt-4 md:pt-6 mt-auto bg-white border-t-2 border-stone-100 flex justify-end gap-4">
           <button
             onClick={onClose}
             className="px-6 py-3 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-xl font-semibold transition-colors"
