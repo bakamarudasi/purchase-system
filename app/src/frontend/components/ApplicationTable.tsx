@@ -1,7 +1,9 @@
 import { useMemo } from 'react';
 import { StatusBadge } from './StatusBadge';
+import { AlertTriangle } from '../icons';
 import { formatDate } from '../utils/format';
 import type { Application, SortConfig } from '../types';
+import type { Anomaly } from '../hooks/useAnomalies';
 
 interface Props {
   applications: Application[];
@@ -11,6 +13,8 @@ interface Props {
   /** 一括操作用の選択行（rowIndex の集合）。undefined の場合は選択UIを出さない */
   selectedRowIndices?: Set<number>;
   onSelectionChange?: (next: Set<number>) => void;
+  /** rowIndex → 異常検知結果（あれば） */
+  anomalies?: Map<number, Anomaly[]>;
 }
 
 interface ColumnDef {
@@ -35,6 +39,7 @@ export function ApplicationTable({
   onSelect,
   selectedRowIndices,
   onSelectionChange,
+  anomalies,
 }: Props) {
   const selectionEnabled = !!selectedRowIndices && !!onSelectionChange;
   const sorted = useMemo(() => {
@@ -184,7 +189,20 @@ export function ApplicationTable({
                   <div className="text-xs text-stone-500">{app.department}</div>
                 </td>
                 <td className="px-6 py-4">
-                  <div className="font-medium text-stone-800">{app.itemName}</div>
+                  <div className="font-medium text-stone-800 flex items-center gap-2">
+                    <span>{app.itemName}</span>
+                    {anomalies?.get(app.rowIndex) && (
+                      <span
+                        title={anomalies
+                          .get(app.rowIndex)!
+                          .map((x) => `⚠ ${x.message}`)
+                          .join('\n')}
+                        className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-amber-100 text-amber-700 border border-amber-300"
+                      >
+                        <AlertTriangle size={12} />
+                      </span>
+                    )}
+                  </div>
                 </td>
                 <td className="px-6 py-4 text-stone-700">{app.quantity}個</td>
                 <td className="px-6 py-4 text-right">

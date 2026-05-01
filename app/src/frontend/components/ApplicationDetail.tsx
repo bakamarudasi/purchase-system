@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { StatusBadge } from './StatusBadge';
-import { X } from '../icons';
+import { AlertTriangle, X } from '../icons';
 import { formatDate, getDriveFileId } from '../utils/format';
 import type { Application, CurrentUser } from '../types';
+import type { Anomaly } from '../hooks/useAnomalies';
 
 interface Props {
   application: Application;
@@ -10,6 +11,7 @@ interface Props {
   onClose: () => void;
   onApprove: (rowIndex: number, comment: string) => Promise<void>;
   onReject: (rowIndex: number, comment: string) => Promise<void>;
+  anomalies?: Anomaly[];
 }
 
 export function ApplicationDetail({
@@ -18,6 +20,7 @@ export function ApplicationDetail({
   onClose,
   onApprove,
   onReject,
+  anomalies,
 }: Props) {
   const [comment, setComment] = useState('');
   const [isPreviewingPdf, setIsPreviewingPdf] = useState(false);
@@ -75,7 +78,7 @@ export function ApplicationDetail({
           >
             <X size={20} />
           </button>
-          <div className="mb-8">
+          <div className="mb-6">
             <h2 className="text-3xl font-bold text-stone-800 mb-2">
               {application.itemName}
             </h2>
@@ -87,6 +90,27 @@ export function ApplicationDetail({
               <span>{formatDate(application.timestamp)}</span>
             </div>
           </div>
+          {anomalies && anomalies.length > 0 && (
+            <div className="mb-6 p-4 rounded-2xl border-2 border-amber-300 bg-amber-50">
+              <div className="flex items-start gap-3">
+                <span className="flex-shrink-0 inline-flex items-center justify-center w-9 h-9 rounded-xl bg-amber-200 text-amber-800">
+                  <AlertTriangle size={18} />
+                </span>
+                <div className="flex-1">
+                  <div className="text-sm font-bold text-amber-900 mb-1">
+                    注意: 異常が検知されました
+                  </div>
+                  <ul className="space-y-1">
+                    {anomalies.map((a, i) => (
+                      <li key={i} className="text-sm text-amber-800">
+                        ・{a.message}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {isPreviewingPdf && fileId ? (

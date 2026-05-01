@@ -77,6 +77,14 @@ export function getApproverList(): Approver[] {
   return ApplicationService.getApproverList();
 }
 
+export function addApprover(email: string, name: string): Approver[] {
+  return ApplicationService.addApprover(email, name);
+}
+
+export function removeApprover(email: string): Approver[] {
+  return ApplicationService.removeApprover(email);
+}
+
 export type UserRole = 'admin' | 'applicant';
 
 export function getCurrentUser(): {

@@ -8,10 +8,12 @@ import { FilterBar, type FilterKey } from './components/FilterBar';
 import { Header } from './components/Header';
 import { MyHistory } from './components/MyHistory';
 import { NewApplicationForm } from './components/NewApplicationForm';
+import { Settings } from './components/Settings';
 import { Statistics } from './components/Statistics';
 import { Toaster } from './components/Toaster';
 import { Download } from './icons';
 import type { ViewKey } from './components/ViewSwitcher';
+import { useAnomalies } from './hooks/useAnomalies';
 import { useApplications } from './hooks/useApplications';
 import { useOnlineStatus } from './hooks/useOnlineStatus';
 import { useToasts } from './hooks/useToasts';
@@ -38,6 +40,8 @@ function App() {
     submitNew,
     discardOptimistic,
     processBulk,
+    addApprover,
+    removeApprover,
   } = useApplications(onError);
 
   // ロールが取れるまでは仮で list を入れておき、確定後に出し分け
@@ -61,6 +65,8 @@ function App() {
   const pendingForMeCount = apps.filter(
     (a) => a.status === '未対応' && a.approver === currentUser.email,
   ).length;
+
+  const anomalies = useAnomalies(apps);
 
   const handlePendingForMeClick = () => {
     setView('list');
@@ -104,9 +110,12 @@ function App() {
     setViewInitialized(true);
   }, [currentUser, viewInitialized]);
 
-  // 申請者が何らかの経路で view='list' になったら mine に戻す（保険）
+  // 申請者が何らかの経路で 'list' / 'settings' になったら mine に戻す（保険）
   useEffect(() => {
-    if (currentUser.role === 'applicant' && view === 'list') {
+    if (
+      currentUser.role === 'applicant' &&
+      (view === 'list' || view === 'settings')
+    ) {
       setView('mine');
     }
   }, [currentUser.role, view]);
@@ -250,6 +259,7 @@ function App() {
                 onSelectionChange={
                   currentUser.role === 'admin' ? setSelectedRowIndices : undefined
                 }
+                anomalies={anomalies}
               />
             </div>
           </>
@@ -274,12 +284,25 @@ function App() {
             />
           </div>
         )}
+
+        {view === 'settings' && currentUser.role === 'admin' && (
+          <div className="p-8">
+            <Settings
+              currentUser={currentUser}
+              approvers={approvers}
+              onAdd={addApprover}
+              onRemove={removeApprover}
+              onPushToast={pushToast}
+            />
+          </div>
+        )}
       </div>
 
       {selectedApp && (
         <ApplicationDetail
           application={selectedApp}
           currentUser={currentUser}
+          anomalies={anomalies.get(selectedApp.rowIndex)}
           onClose={() => setSelectedApp(null)}
           onApprove={
             selectedApp.clientStatus

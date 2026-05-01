@@ -282,6 +282,59 @@ export class ApplicationService {
     }
 
     /**
+     * 承認者を追加。既存ユーザー（重複 email）の場合は何もしない。
+     * 操作は管理者（既存承認者）にのみ許可する。
+     */
+    static addApprover(email: string, name: string): Approver[] {
+        this.assertCallerIsApprover();
+        const cleanEmail = (email || '').trim();
+        const cleanName = (name || '').trim();
+        if (!cleanEmail || !cleanName) {
+            throw new Error('email と name は必須です');
+        }
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+            throw new Error('email の形式が正しくありません');
+        }
+        if (this.isApprover(cleanEmail)) {
+            return this.getApproverList();
+        }
+        this.withLock(() => {
+            const sheet = this.getSheet(SHEET_NAMES.APPROVER_LIST);
+            sheet.appendRow([cleanEmail, cleanName]);
+            SpreadsheetApp.flush();
+        });
+        return this.getApproverList();
+    }
+
+    /**
+     * 承認者を削除。該当 email の最初の行を削除する。
+     * 自分自身は削除できない（管理者がいなくなる事故を防ぐ）。
+     */
+    static removeApprover(email: string): Approver[] {
+        this.assertCallerIsApprover();
+        const target = (email || '').trim().toLowerCase();
+        if (!target) throw new Error('email は必須です');
+
+        const callerEmail = Session.getActiveUser().getEmail().toLowerCase();
+        if (target === callerEmail) {
+            throw new Error('自分自身は削除できません');
+        }
+
+        this.withLock(() => {
+            const sheet = this.getSheet(SHEET_NAMES.APPROVER_LIST);
+            const data = sheet.getRange('A2:B').getValues();
+            for (let i = 0; i < data.length; i++) {
+                if (String(data[i][0]).trim().toLowerCase() === target) {
+                    sheet.deleteRow(i + 2);
+                    SpreadsheetApp.flush();
+                    return;
+                }
+            }
+        });
+        return this.getApproverList();
+    }
+
+    /**
      * メールアドレスからユーザー名を取得（社員名簿から）
      */
     static getUserName(email: string): string | null {

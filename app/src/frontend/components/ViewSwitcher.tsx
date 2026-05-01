@@ -1,7 +1,7 @@
-import { LayoutDashboard, List, User } from '../icons';
+import { LayoutDashboard, List, Settings, User } from '../icons';
 import type { UserRole } from '../types';
 
-export type ViewKey = 'list' | 'mine' | 'dashboard';
+export type ViewKey = 'list' | 'mine' | 'dashboard' | 'settings';
 
 interface Props {
   view: ViewKey;
@@ -22,6 +22,7 @@ const TABS: TabDef[] = [
   { key: 'list', label: '申請一覧', Icon: List, roles: ['admin'] },
   { key: 'mine', label: 'マイページ', Icon: User },
   { key: 'dashboard', label: 'ダッシュボード', Icon: LayoutDashboard },
+  { key: 'settings', label: '設定', Icon: Settings, roles: ['admin'] },
 ];
 
 export function ViewSwitcher({ view, role, onChange }: Props) {

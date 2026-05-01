@@ -235,6 +235,26 @@ export function useApplications(onError: (msg: string) => void) {
     [],
   );
 
+  const addApprover = useCallback(async (email: string, name: string) => {
+    if (!isProd) {
+      setApprovers((prev) =>
+        prev.some((a) => a.email === email) ? prev : [...prev, { email, name }],
+      );
+      return;
+    }
+    const list = await serverFunctions.addApprover(email, name);
+    setApprovers(list);
+  }, []);
+
+  const removeApprover = useCallback(async (email: string) => {
+    if (!isProd) {
+      setApprovers((prev) => prev.filter((a) => a.email !== email));
+      return;
+    }
+    const list = await serverFunctions.removeApprover(email);
+    setApprovers(list);
+  }, []);
+
   /**
    * 楽観UI で失敗した仮データを一覧から削除
    */
@@ -324,5 +344,7 @@ export function useApplications(onError: (msg: string) => void) {
     submitNew,
     discardOptimistic,
     processBulk,
+    addApprover,
+    removeApprover,
   };
 }
