@@ -1,7 +1,7 @@
-import { LayoutDashboard, List, User } from '../icons';
+import { LayoutDashboard, List, Settings, User } from '../icons';
 import type { UserRole } from '../types';
 
-export type ViewKey = 'list' | 'mine' | 'dashboard';
+export type ViewKey = 'list' | 'mine' | 'dashboard' | 'settings';
 
 interface Props {
   view: ViewKey;
@@ -22,6 +22,7 @@ const TABS: TabDef[] = [
   { key: 'list', label: '申請一覧', Icon: List, roles: ['admin'] },
   { key: 'mine', label: 'マイページ', Icon: User },
   { key: 'dashboard', label: 'ダッシュボード', Icon: LayoutDashboard },
+  { key: 'settings', label: '設定', Icon: Settings, roles: ['admin'] },
 ];
 
 export function ViewSwitcher({ view, role, onChange }: Props) {
@@ -40,14 +41,15 @@ export function ViewSwitcher({ view, role, onChange }: Props) {
             role="tab"
             aria-selected={active}
             onClick={() => onChange(key)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+            title={label}
+            className={`flex items-center gap-2 px-3 md:px-4 py-2 rounded-lg text-sm font-semibold transition-all whitespace-nowrap ${
               active
                 ? 'bg-white text-amber-700 shadow-sm'
                 : 'text-stone-600 hover:text-stone-800'
             }`}
           >
             <Icon size={16} />
-            <span>{label}</span>
+            <span className="hidden sm:inline">{label}</span>
           </button>
         );
       })}

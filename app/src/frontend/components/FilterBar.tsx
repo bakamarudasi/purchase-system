@@ -42,9 +42,9 @@ export function FilterBar({
   };
 
   return (
-    <div className="flex items-center gap-4 relative">
-      <Filter size={20} className="text-stone-600" />
-      <div className="flex gap-2 flex-1" role="tablist" aria-label="ステータスフィルタ">
+    <div className="flex items-center gap-2 md:gap-4 relative">
+      <Filter size={20} className="text-stone-600 hidden sm:block" />
+      <div className="flex gap-2 flex-1 flex-wrap" role="tablist" aria-label="ステータスフィルタ">
         {TABS.filter(({ key }) => key === 'all' || visibleTabs[key]).map(
           ({ key, label }) => (
             <button

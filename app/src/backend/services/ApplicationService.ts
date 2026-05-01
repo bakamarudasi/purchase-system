@@ -18,6 +18,7 @@ import {
     DEFAULT_CONFIG,
 } from '../config';
 import { safeParseInt, safeParseFloat, formatError } from '../utils/format';
+import { NotificationService } from './NotificationService';
 
 const COLUMN_COUNT = Object.keys(COLUMN_INDEX).length;
 const LOCK_TIMEOUT_MS = 10_000;
@@ -85,6 +86,7 @@ export class ApplicationService {
     static approveApplication(rowIndex: number, approver: string, comment: string): void {
         this.assertCallerIsApprover();
         this.updateApplicationStatus(rowIndex, STATUS.APPROVED, approver, comment);
+        this.notifyDecisionByRow(rowIndex, '承認', approver, comment);
     }
 
     /**
@@ -94,6 +96,72 @@ export class ApplicationService {
     static rejectApplication(rowIndex: number, approver: string, comment: string): void {
         this.assertCallerIsApprover();
         this.updateApplicationStatus(rowIndex, STATUS.REJECTED, approver, comment);
+        this.notifyDecisionByRow(rowIndex, '却下', approver, comment);
+    }
+
+    /**
+     * 申請者にメール通知（社員名簿で名前→メアドを逆引き）
+     * 失敗してもメイン処理は止めない
+     */
+    private static notifyDecisionByRow(
+        rowIndex: number,
+        decision: '承認' | '却下',
+        approver: string,
+        comment: string,
+    ): void {
+        try {
+            const app = this.getApplicationByRowIndex(rowIndex);
+            if (!app) return;
+            const applicantEmail = this.getEmailByName(app.name);
+            if (!applicantEmail) return;
+            NotificationService.notifyDecision(app, applicantEmail, decision, approver, comment);
+        } catch (e) {
+            Logger.log(`結果通知の準備エラー: ${formatError(e)}`);
+        }
+    }
+
+    /**
+     * 一括承認/却下の戻り値
+     */
+    static processBulk(
+        rowIndices: number[],
+        action: 'approve' | 'reject',
+        approver: string,
+        comment: string,
+    ): { success: number[]; failed: { rowIndex: number; error: string }[] } {
+        this.assertCallerIsApprover();
+        const status = action === 'approve' ? STATUS.APPROVED : STATUS.REJECTED;
+        const success: number[] = [];
+        const failed: { rowIndex: number; error: string }[] = [];
+
+        // 1 件ずつロックを取り直すと遅いので、全体を 1 ロックで囲う
+        this.withLock(() => {
+            const sheet = this.getSheet(SHEET_NAMES.APPLICATIONS);
+            const now = new Date();
+            for (const rowIndex of rowIndices) {
+                try {
+                    if (rowIndex < 2) {
+                        throw new Error(ERROR_MESSAGES.INVALID_ROW_INDEX);
+                    }
+                    sheet.getRange(rowIndex, COLUMN_INDEX.STATUS + 1).setValue(status);
+                    sheet.getRange(rowIndex, COLUMN_INDEX.APPROVER + 1).setValue(approver);
+                    sheet.getRange(rowIndex, COLUMN_INDEX.APPROVAL_DATE + 1).setValue(now);
+                    sheet.getRange(rowIndex, COLUMN_INDEX.COMMENT + 1).setValue(comment);
+                    success.push(rowIndex);
+                } catch (e) {
+                    failed.push({ rowIndex, error: formatError(e) });
+                }
+            }
+            SpreadsheetApp.flush();
+        });
+
+        // ロック外でメール通知（成功した行に対してのみ、申請者へ）
+        const decisionLabel: '承認' | '却下' = action === 'approve' ? '承認' : '却下';
+        for (const rowIndex of success) {
+            this.notifyDecisionByRow(rowIndex, decisionLabel, approver, comment);
+        }
+
+        return { success, failed };
     }
 
     /**
@@ -175,6 +243,9 @@ export class ApplicationService {
             comment: ''
         };
 
+        // 承認者にメール通知（失敗してもアプリは止めない）
+        NotificationService.notifyNewApplication(newApplication, approver);
+
         return newApplication;
     }
 
@@ -211,10 +282,80 @@ export class ApplicationService {
     }
 
     /**
+     * 承認者を追加。既存ユーザー（重複 email）の場合は何もしない。
+     * 操作は管理者（既存承認者）にのみ許可する。
+     */
+    static addApprover(email: string, name: string): Approver[] {
+        this.assertCallerIsApprover();
+        const cleanEmail = (email || '').trim();
+        const cleanName = (name || '').trim();
+        if (!cleanEmail || !cleanName) {
+            throw new Error('email と name は必須です');
+        }
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+            throw new Error('email の形式が正しくありません');
+        }
+        if (this.isApprover(cleanEmail)) {
+            return this.getApproverList();
+        }
+        this.withLock(() => {
+            const sheet = this.getSheet(SHEET_NAMES.APPROVER_LIST);
+            sheet.appendRow([cleanEmail, cleanName]);
+            SpreadsheetApp.flush();
+        });
+        return this.getApproverList();
+    }
+
+    /**
+     * 承認者を削除。該当 email の最初の行を削除する。
+     * 自分自身は削除できない（管理者がいなくなる事故を防ぐ）。
+     */
+    static removeApprover(email: string): Approver[] {
+        this.assertCallerIsApprover();
+        const target = (email || '').trim().toLowerCase();
+        if (!target) throw new Error('email は必須です');
+
+        const callerEmail = Session.getActiveUser().getEmail().toLowerCase();
+        if (target === callerEmail) {
+            throw new Error('自分自身は削除できません');
+        }
+
+        this.withLock(() => {
+            const sheet = this.getSheet(SHEET_NAMES.APPROVER_LIST);
+            const data = sheet.getRange('A2:B').getValues();
+            for (let i = 0; i < data.length; i++) {
+                if (String(data[i][0]).trim().toLowerCase() === target) {
+                    sheet.deleteRow(i + 2);
+                    SpreadsheetApp.flush();
+                    return;
+                }
+            }
+        });
+        return this.getApproverList();
+    }
+
+    /**
      * メールアドレスからユーザー名を取得（社員名簿から）
      */
     static getUserName(email: string): string | null {
         return this.getUserProfile(email)?.name ?? null;
+    }
+
+    /**
+     * 名前からメールアドレスを逆引き（社員名簿から）
+     * 同名社員がいる場合は最初に見つかったものを返す
+     */
+    static getEmailByName(name: string): string | null {
+        if (!name) return null;
+        try {
+            const employeeSheet = this.getSheet(SHEET_NAMES.EMPLOYEE_LIST);
+            const data = employeeSheet.getDataRange().getValues();
+            const row = data.slice(1).find((r) => String(r[1]) === name);
+            return row && row[0] ? String(row[0]) : null;
+        } catch (e) {
+            Logger.log(`社員名簿からの email 逆引きエラー: ${formatError(e)}`);
+            return null;
+        }
     }
 
     /**

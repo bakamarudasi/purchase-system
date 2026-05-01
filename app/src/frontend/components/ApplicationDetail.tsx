@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { StatusBadge } from './StatusBadge';
-import { X } from '../icons';
+import { AlertTriangle, X } from '../icons';
 import { formatDate, getDriveFileId } from '../utils/format';
 import type { Application, CurrentUser } from '../types';
+import type { Anomaly } from '../hooks/useAnomalies';
 
 interface Props {
   application: Application;
@@ -10,6 +11,7 @@ interface Props {
   onClose: () => void;
   onApprove: (rowIndex: number, comment: string) => Promise<void>;
   onReject: (rowIndex: number, comment: string) => Promise<void>;
+  anomalies?: Anomaly[];
 }
 
 export function ApplicationDetail({
@@ -18,6 +20,7 @@ export function ApplicationDetail({
   onClose,
   onApprove,
   onReject,
+  anomalies,
 }: Props) {
   const [comment, setComment] = useState('');
   const [isPreviewingPdf, setIsPreviewingPdf] = useState(false);
@@ -55,28 +58,28 @@ export function ApplicationDetail({
 
   return (
     <div
-      className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-8 z-50"
+      className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-0 md:p-8 z-50"
       onClick={() => {
         onClose();
         setIsPreviewingPdf(false);
       }}
     >
       <div
-        className="bg-white rounded-3xl shadow-2xl max-w-5xl w-full h-[90vh] overflow-hidden border-4 border-stone-200 flex flex-col relative"
+        className="bg-white rounded-none md:rounded-3xl shadow-2xl max-w-5xl w-full h-full md:h-[90vh] overflow-hidden md:border-4 md:border-stone-200 flex flex-col relative"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="p-8 pb-0 flex-shrink-0">
+        <div className="p-4 md:p-8 pb-0 flex-shrink-0">
           <button
             onClick={() => {
               onClose();
               setIsPreviewingPdf(false);
             }}
-            className="absolute top-8 right-8 w-10 h-10 bg-stone-100 hover:bg-stone-200 rounded-lg flex items-center justify-center text-stone-700 transition-colors z-10"
+            className="absolute top-4 right-4 md:top-8 md:right-8 w-10 h-10 bg-stone-100 hover:bg-stone-200 rounded-lg flex items-center justify-center text-stone-700 transition-colors z-10"
           >
             <X size={20} />
           </button>
-          <div className="mb-8">
-            <h2 className="text-3xl font-bold text-stone-800 mb-2">
+          <div className="mb-6">
+            <h2 className="text-xl md:text-3xl font-bold text-stone-800 mb-2 pr-12">
               {application.itemName}
             </h2>
             <div className="flex items-center gap-4 text-sm text-stone-600">
@@ -87,11 +90,32 @@ export function ApplicationDetail({
               <span>{formatDate(application.timestamp)}</span>
             </div>
           </div>
+          {anomalies && anomalies.length > 0 && (
+            <div className="mb-6 p-4 rounded-2xl border-2 border-amber-300 bg-amber-50">
+              <div className="flex items-start gap-3">
+                <span className="flex-shrink-0 inline-flex items-center justify-center w-9 h-9 rounded-xl bg-amber-200 text-amber-800">
+                  <AlertTriangle size={18} />
+                </span>
+                <div className="flex-1">
+                  <div className="text-sm font-bold text-amber-900 mb-1">
+                    注意: 異常が検知されました
+                  </div>
+                  <ul className="space-y-1">
+                    {anomalies.map((a, i) => (
+                      <li key={i} className="text-sm text-amber-800">
+                        ・{a.message}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {isPreviewingPdf && fileId ? (
           <div className="flex-grow flex flex-col h-full">
-            <div className="px-8 pb-4">
+            <div className="px-4 md:px-8 pb-4">
               <button
                 onClick={() => setIsPreviewingPdf(false)}
                 className="px-4 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-lg transition-colors text-sm font-medium"
@@ -106,8 +130,8 @@ export function ApplicationDetail({
             />
           </div>
         ) : (
-          <div className="p-8 pt-0 overflow-y-auto">
-            <div className="grid grid-cols-2 gap-8 mb-8">
+          <div className="p-4 md:p-8 pt-0 overflow-y-auto">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-8 mb-6 md:mb-8">
               <div className="bg-stone-50 border-2 border-stone-200 rounded-2xl p-6">
                 <h3 className="text-sm font-semibold text-stone-600 uppercase tracking-wide mb-4">
                   申請情報

@@ -46,6 +46,15 @@ export function rejectApplication(
   ApplicationService.rejectApplication(rowIndex, approver, comment);
 }
 
+export function processBulk(
+  rowIndices: number[],
+  action: 'approve' | 'reject',
+  approver: string,
+  comment: string,
+): { success: number[]; failed: { rowIndex: number; error: string }[] } {
+  return ApplicationService.processBulk(rowIndices, action, approver, comment);
+}
+
 export function addApplication(data: {
   name: string;
   department: string;
@@ -66,6 +75,14 @@ export function getStatistics() {
 
 export function getApproverList(): Approver[] {
   return ApplicationService.getApproverList();
+}
+
+export function addApprover(email: string, name: string): Approver[] {
+  return ApplicationService.addApprover(email, name);
+}
+
+export function removeApprover(email: string): Approver[] {
+  return ApplicationService.removeApprover(email);
 }
 
 export type UserRole = 'admin' | 'applicant';

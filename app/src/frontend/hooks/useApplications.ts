@@ -235,6 +235,26 @@ export function useApplications(onError: (msg: string) => void) {
     [],
   );
 
+  const addApprover = useCallback(async (email: string, name: string) => {
+    if (!isProd) {
+      setApprovers((prev) =>
+        prev.some((a) => a.email === email) ? prev : [...prev, { email, name }],
+      );
+      return;
+    }
+    const list = await serverFunctions.addApprover(email, name);
+    setApprovers(list);
+  }, []);
+
+  const removeApprover = useCallback(async (email: string) => {
+    if (!isProd) {
+      setApprovers((prev) => prev.filter((a) => a.email !== email));
+      return;
+    }
+    const list = await serverFunctions.removeApprover(email);
+    setApprovers(list);
+  }, []);
+
   /**
    * 楽観UI で失敗した仮データを一覧から削除
    */
@@ -245,6 +265,72 @@ export function useApplications(onError: (msg: string) => void) {
       return next;
     });
   }, []);
+
+  /**
+   * 複数の申請を一括で承認/却下する。
+   * 結果は { success, failed } で返す。
+   */
+  const processBulk = useCallback(
+    async (
+      rowIndices: number[],
+      action: 'approve' | 'reject',
+      approver: string,
+      comment: string,
+    ): Promise<{ success: number[]; failed: { rowIndex: number; error: string }[] }> => {
+      if (!isProd) {
+        // dev 環境ではすべて成功扱いで楽観反映
+        const newStatus = action === 'approve' ? '承認' : '却下';
+        setApps((prev) => {
+          const next = prev.map((a) =>
+            rowIndices.includes(a.rowIndex)
+              ? {
+                  ...a,
+                  status: newStatus as Application['status'],
+                  approver,
+                  approvalDate: new Date().toISOString(),
+                  comment,
+                }
+              : a,
+          );
+          setStats(calculateStats(next));
+          return next;
+        });
+        return { success: rowIndices, failed: [] };
+      }
+
+      try {
+        const result = await serverFunctions.processBulk(
+          rowIndices,
+          action,
+          approver,
+          comment,
+        );
+        // 成功した行だけ画面に反映
+        const successSet = new Set(result.success);
+        const newStatus = action === 'approve' ? '承認' : '却下';
+        setApps((prev) => {
+          const next = prev.map((a) =>
+            successSet.has(a.rowIndex)
+              ? {
+                  ...a,
+                  status: newStatus as Application['status'],
+                  approver,
+                  approvalDate: new Date().toISOString(),
+                  comment,
+                }
+              : a,
+          );
+          setStats(calculateStats(next));
+          return next;
+        });
+        return result;
+      } catch (e) {
+        await refresh();
+        throw e;
+      }
+    },
+    [refresh],
+  );
 
   return {
     apps,
@@ -257,5 +343,8 @@ export function useApplications(onError: (msg: string) => void) {
     reject,
     submitNew,
     discardOptimistic,
+    processBulk,
+    addApprover,
+    removeApprover,
   };
 }
