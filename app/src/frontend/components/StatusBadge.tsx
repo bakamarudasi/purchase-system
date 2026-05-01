@@ -1,8 +1,8 @@
-import { CheckCircle, Clock, FileCheck, FileText, X } from '../icons';
+import { CheckCircle, Clock, FileCheck, FileText, Send, X } from '../icons';
 import type { ApplicationStatus } from '../types';
 
 interface Props {
-  status: ApplicationStatus | string;
+  status: ApplicationStatus | '送信中' | '送信失敗' | string;
 }
 
 interface BadgeStyle {
@@ -30,6 +30,14 @@ const styles: Record<string, BadgeStyle> = {
   完了: {
     className: 'bg-gray-100 text-gray-800 border-gray-300',
     icon: <FileText size={14} className="mr-1.5" />,
+  },
+  送信中: {
+    className: 'bg-sky-100 text-sky-800 border-sky-300 animate-pulse',
+    icon: <Send size={14} className="mr-1.5" />,
+  },
+  送信失敗: {
+    className: 'bg-rose-100 text-rose-800 border-rose-300',
+    icon: <X size={14} className="mr-1.5" />,
   },
 };
 

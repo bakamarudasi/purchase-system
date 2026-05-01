@@ -68,18 +68,24 @@ export function getApproverList(): Approver[] {
   return ApplicationService.getApproverList();
 }
 
+export type UserRole = 'admin' | 'applicant';
+
 export function getCurrentUser(): {
   email: string;
   name: string;
   department: string;
+  role: UserRole;
 } {
   const email = Session.getActiveUser().getEmail();
   const fallbackName = email ? email.split('@')[0] : 'ゲスト';
 
   const profile = ApplicationService.getUserProfile(email);
+  // 承認者リストに乗っているユーザーを管理者とみなす
+  const role: UserRole = ApplicationService.isApprover(email) ? 'admin' : 'applicant';
   return {
     email,
     name: profile?.name ?? fallbackName,
     department: profile?.department ?? '',
+    role,
   };
 }

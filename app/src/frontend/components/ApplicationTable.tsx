@@ -89,7 +89,13 @@ export function ApplicationTable({
             {sorted.map((app) => (
               <tr
                 key={app.rowIndex}
-                className="border-b border-stone-100 hover:bg-amber-50/50 transition-colors cursor-pointer"
+                className={`border-b border-stone-100 hover:bg-amber-50/50 transition-colors cursor-pointer ${
+                  app.clientStatus === 'sending'
+                    ? 'opacity-70 bg-sky-50/40'
+                    : app.clientStatus === 'failed'
+                      ? 'bg-rose-50/40'
+                      : ''
+                }`}
                 onClick={() => onSelect(app)}
               >
                 <td className="px-6 py-4 text-sm text-stone-600">
@@ -109,7 +115,15 @@ export function ApplicationTable({
                   </div>
                 </td>
                 <td className="px-6 py-4 text-center">
-                  <StatusBadge status={app.status} />
+                  <StatusBadge
+                    status={
+                      app.clientStatus === 'sending'
+                        ? '送信中'
+                        : app.clientStatus === 'failed'
+                          ? '送信失敗'
+                          : app.status
+                    }
+                  />
                 </td>
                 <td className="px-6 py-4 text-center">
                   <button
