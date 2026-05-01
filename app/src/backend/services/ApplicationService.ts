@@ -97,6 +97,44 @@ export class ApplicationService {
     }
 
     /**
+     * 一括承認/却下の戻り値
+     */
+    static processBulk(
+        rowIndices: number[],
+        action: 'approve' | 'reject',
+        approver: string,
+        comment: string,
+    ): { success: number[]; failed: { rowIndex: number; error: string }[] } {
+        this.assertCallerIsApprover();
+        const status = action === 'approve' ? STATUS.APPROVED : STATUS.REJECTED;
+        const success: number[] = [];
+        const failed: { rowIndex: number; error: string }[] = [];
+
+        // 1 件ずつロックを取り直すと遅いので、全体を 1 ロックで囲う
+        this.withLock(() => {
+            const sheet = this.getSheet(SHEET_NAMES.APPLICATIONS);
+            const now = new Date();
+            for (const rowIndex of rowIndices) {
+                try {
+                    if (rowIndex < 2) {
+                        throw new Error(ERROR_MESSAGES.INVALID_ROW_INDEX);
+                    }
+                    sheet.getRange(rowIndex, COLUMN_INDEX.STATUS + 1).setValue(status);
+                    sheet.getRange(rowIndex, COLUMN_INDEX.APPROVER + 1).setValue(approver);
+                    sheet.getRange(rowIndex, COLUMN_INDEX.APPROVAL_DATE + 1).setValue(now);
+                    sheet.getRange(rowIndex, COLUMN_INDEX.COMMENT + 1).setValue(comment);
+                    success.push(rowIndex);
+                } catch (e) {
+                    failed.push({ rowIndex, error: formatError(e) });
+                }
+            }
+            SpreadsheetApp.flush();
+        });
+
+        return { success, failed };
+    }
+
+    /**
      * 現在の操作ユーザーが承認者かを検証する。
      * フロント側のロール分岐は迂回可能なのでサーバー側でも必ずチェックする。
      */

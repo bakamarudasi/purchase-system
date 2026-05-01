@@ -46,6 +46,15 @@ export function rejectApplication(
   ApplicationService.rejectApplication(rowIndex, approver, comment);
 }
 
+export function processBulk(
+  rowIndices: number[],
+  action: 'approve' | 'reject',
+  approver: string,
+  comment: string,
+): { success: number[]; failed: { rowIndex: number; error: string }[] } {
+  return ApplicationService.processBulk(rowIndices, action, approver, comment);
+}
+
 export function addApplication(data: {
   name: string;
   department: string;

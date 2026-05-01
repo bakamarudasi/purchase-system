@@ -8,6 +8,10 @@ interface Props {
   onViewChange: (view: ViewKey) => void;
   online: boolean;
   onNewApplication: () => void;
+  /** 自分宛の承認待ち件数。管理者のみ意味を持つ */
+  pendingForMeCount?: number;
+  /** バッジクリック時に「自分宛の承認待ち」絞り込みに飛ばす */
+  onPendingForMeClick?: () => void;
 }
 
 export function Header({
@@ -16,6 +20,8 @@ export function Header({
   onViewChange,
   online,
   onNewApplication,
+  pendingForMeCount = 0,
+  onPendingForMeClick,
 }: Props) {
   const initial = (currentUser.name || currentUser.email || '?').charAt(0).toUpperCase();
   const isAdmin = currentUser.role === 'admin';
@@ -31,6 +37,19 @@ export function Header({
           <ViewSwitcher view={view} role={currentUser.role} onChange={onViewChange} />
         </div>
         <div className="flex items-center gap-3">
+          {isAdmin && pendingForMeCount > 0 && (
+            <button
+              type="button"
+              onClick={onPendingForMeClick}
+              className="relative flex items-center gap-2 px-3 py-2 bg-rose-50 border border-rose-200 text-rose-700 rounded-lg text-sm font-semibold hover:bg-rose-100 transition-colors"
+              title="自分宛の承認待ちにジャンプ"
+            >
+              <span className="inline-flex items-center justify-center min-w-[1.5rem] h-6 px-1.5 bg-rose-600 text-white text-xs font-bold rounded-full">
+                {pendingForMeCount}
+              </span>
+              <span>承認待ち</span>
+            </button>
+          )}
           <div
             className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium ${
               online
