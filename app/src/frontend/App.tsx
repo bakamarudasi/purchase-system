@@ -37,6 +37,9 @@ function App() {
     approvers,
     confirmers,
     purchasers,
+    accountCategories,
+    chargingDepartments,
+    systemSettings,
     loading,
     approve,
     reject,
@@ -51,7 +54,20 @@ function App() {
     removeConfirmer,
     addPurchaser,
     removePurchaser,
+    addAccountCategory,
+    removeAccountCategory,
+    addChargingDepartment,
+    removeChargingDepartment,
+    updateSystemSetting,
   } = useApplications(onError);
+
+  const itemRequestThreshold = Number(
+    systemSettings.REQUIRES_ITEM_REQUEST_THRESHOLD ?? '50000',
+  );
+
+  const handleUpdateThreshold = async (n: number) => {
+    await updateSystemSetting('REQUIRES_ITEM_REQUEST_THRESHOLD', String(n));
+  };
 
   // ロールが取れるまでは仮で list を入れておき、確定後に出し分け
   const [view, setView] = useState<ViewKey>('list');
@@ -334,12 +350,20 @@ function App() {
               approvers={approvers}
               confirmers={confirmers}
               purchasers={purchasers}
+              accountCategories={accountCategories}
+              chargingDepartments={chargingDepartments}
+              itemRequestThreshold={itemRequestThreshold}
               onAddApprover={addApprover}
               onRemoveApprover={removeApprover}
               onAddConfirmer={addConfirmer}
               onRemoveConfirmer={removeConfirmer}
               onAddPurchaser={addPurchaser}
               onRemovePurchaser={removePurchaser}
+              onAddAccountCategory={addAccountCategory}
+              onRemoveAccountCategory={removeAccountCategory}
+              onAddChargingDepartment={addChargingDepartment}
+              onRemoveChargingDepartment={removeChargingDepartment}
+              onUpdateThreshold={handleUpdateThreshold}
               onPushToast={pushToast}
             />
           </div>
@@ -381,6 +405,9 @@ function App() {
         <NewApplicationForm
           currentUser={currentUser}
           approvers={approvers}
+          accountCategories={accountCategories}
+          chargingDepartments={chargingDepartments}
+          itemRequestThreshold={itemRequestThreshold}
           onClose={() => setIsNewAppFormOpen(false)}
           onSubmit={handleNewApplication}
           onPushToast={pushToast}

@@ -254,6 +254,18 @@ export function ApplicationDetail({
                     label="ステータス"
                     value={<StatusBadge status={application.status} />}
                   />
+                  {application.accountCategory && (
+                    <Row
+                      label="勘定科目"
+                      value={application.accountCategory}
+                    />
+                  )}
+                  {application.chargingDepartment && (
+                    <Row
+                      label="負担部署"
+                      value={application.chargingDepartment}
+                    />
+                  )}
                   {application.productUrl && (
                     <Row
                       label="商品URL"

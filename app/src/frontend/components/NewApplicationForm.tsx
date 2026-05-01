@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Refresh, Trash, X } from '../icons';
+import { AlertTriangle, Refresh, Trash, X } from '../icons';
 import { usePersistentDraft } from '../hooks/usePersistentDraft';
 import type { Approver, CurrentUser } from '../types';
 
@@ -12,6 +12,8 @@ export interface SubmitPayload {
   reason: string;
   productUrl?: string;
   selectedApprover?: string;
+  accountCategory?: string;
+  chargingDepartment?: string;
   file?: { name: string; mimeType: string; data: string };
 }
 
@@ -22,6 +24,9 @@ interface DraftPayload {
   reason: string;
   productUrl: string;
   selectedApprover: string;
+  accountCategory: string;
+  chargingDepartmentSelection: string;
+  chargingDepartmentOther: string;
   savedAt: string;
 }
 
@@ -30,6 +35,10 @@ const DRAFT_KEY_PREFIX = 'purchase-system:draft:';
 interface Props {
   currentUser: CurrentUser;
   approvers: Approver[];
+  accountCategories: string[];
+  chargingDepartments: string[];
+  /** 物品申請が必要になる金額しきい値（円） */
+  itemRequestThreshold: number;
   onClose: () => void;
   onSubmit: (payload: SubmitPayload) => Promise<void>;
   onPushToast: (type: 'success' | 'error' | 'info', message: string) => void;
@@ -48,6 +57,9 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 export function NewApplicationForm({
   currentUser,
   approvers,
+  accountCategories,
+  chargingDepartments,
+  itemRequestThreshold,
   onClose,
   onSubmit,
   onPushToast,
@@ -59,11 +71,22 @@ export function NewApplicationForm({
   const [reason, setReason] = useState('');
   const [productUrl, setProductUrl] = useState('');
   const [selectedApprover, setSelectedApprover] = useState('');
+  const [accountCategory, setAccountCategory] = useState('');
+  // 負担部署は「選択値」と「その他自由入力」を別 state で持つ
+  const [chargingDepartmentSelection, setChargingDepartmentSelection] =
+    useState('');
+  const [chargingDepartmentOther, setChargingDepartmentOther] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [restorePromptShown, setRestorePromptShown] = useState(false);
   const [restoredAt, setRestoredAt] = useState<string | null>(null);
   const [autoSavedAt, setAutoSavedAt] = useState<string | null>(null);
+
+  const isOther = chargingDepartmentSelection === 'その他';
+  // 実際にサーバへ送る負担部署文字列
+  const chargingDepartmentValue = isOther
+    ? chargingDepartmentOther.trim()
+    : chargingDepartmentSelection;
 
   // ユーザー単位で下書きを分離（複数アカウントが同じブラウザを使うケース対策）
   const draftKey = `${DRAFT_KEY_PREFIX}${currentUser.email || 'guest'}`;
@@ -89,6 +112,18 @@ export function NewApplicationForm({
     }
   }, [approvers, selectedApprover]);
 
+  useEffect(() => {
+    if (accountCategories.length > 0 && !accountCategory) {
+      setAccountCategory(accountCategories[0]);
+    }
+  }, [accountCategories, accountCategory]);
+
+  useEffect(() => {
+    if (chargingDepartments.length > 0 && !chargingDepartmentSelection) {
+      setChargingDepartmentSelection(chargingDepartments[0]);
+    }
+  }, [chargingDepartments, chargingDepartmentSelection]);
+
   // 入力内容を debounce 付きで自動保存
   useEffect(() => {
     // 何も入力されていない真っ新な状態は保存しない（ノイズ防止）
@@ -104,9 +139,23 @@ export function NewApplicationForm({
       reason,
       productUrl,
       selectedApprover,
+      accountCategory,
+      chargingDepartmentSelection,
+      chargingDepartmentOther,
       savedAt: now,
     });
-  }, [itemName, quantity, unitPrice, reason, productUrl, selectedApprover, draftSave]);
+  }, [
+    itemName,
+    quantity,
+    unitPrice,
+    reason,
+    productUrl,
+    selectedApprover,
+    accountCategory,
+    chargingDepartmentSelection,
+    chargingDepartmentOther,
+    draftSave,
+  ]);
 
   const handleRestoreDraft = () => {
     if (!initialDraft) return;
@@ -117,6 +166,15 @@ export function NewApplicationForm({
     setProductUrl(initialDraft.productUrl ?? '');
     if (initialDraft.selectedApprover) {
       setSelectedApprover(initialDraft.selectedApprover);
+    }
+    if (initialDraft.accountCategory) {
+      setAccountCategory(initialDraft.accountCategory);
+    }
+    if (initialDraft.chargingDepartmentSelection) {
+      setChargingDepartmentSelection(initialDraft.chargingDepartmentSelection);
+    }
+    if (initialDraft.chargingDepartmentOther) {
+      setChargingDepartmentOther(initialDraft.chargingDepartmentOther);
     }
     setRestoredAt(initialDraft.savedAt);
     setRestorePromptShown(false);
@@ -160,6 +218,19 @@ export function NewApplicationForm({
       onPushToast('info', '数量と単価は 1 以上を入力してください');
       return;
     }
+    if (!accountCategory) {
+      onPushToast('info', '勘定科目を選択してください');
+      return;
+    }
+    if (!chargingDepartmentValue) {
+      onPushToast(
+        'info',
+        isOther
+          ? '負担部署（その他）の名称を入力してください'
+          : '負担部署を選択してください',
+      );
+      return;
+    }
 
     setIsSubmitting(true);
     try {
@@ -172,6 +243,8 @@ export function NewApplicationForm({
         reason,
         productUrl: productUrl || undefined,
         selectedApprover: selectedApprover || undefined,
+        accountCategory,
+        chargingDepartment: chargingDepartmentValue,
       };
 
       if (file) {
@@ -186,6 +259,10 @@ export function NewApplicationForm({
       setIsSubmitting(false);
     }
   };
+
+  const totalPriceForWarning = quantity * unitPrice;
+  const showThresholdWarning =
+    itemRequestThreshold > 0 && totalPriceForWarning >= itemRequestThreshold;
 
   return (
     <div
@@ -341,6 +418,76 @@ export function NewApplicationForm({
               <p className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-amber-700 to-orange-700">
                 ¥{totalPrice.toLocaleString()}
               </p>
+            </div>
+
+            {showThresholdWarning && (
+              <div className="p-4 rounded-2xl border-2 border-amber-300 bg-amber-50 flex items-start gap-3">
+                <span className="flex-shrink-0 inline-flex items-center justify-center w-9 h-9 rounded-xl bg-amber-200 text-amber-800">
+                  <AlertTriangle size={18} />
+                </span>
+                <div className="text-sm text-amber-900 leading-relaxed">
+                  <div className="font-bold mb-1">
+                    ¥{itemRequestThreshold.toLocaleString()} 以上の購入は別途「物品申請」が必要です
+                  </div>
+                  <div>
+                    物品申請後、購入担当者が対応します。
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="text-sm font-semibold text-stone-600 mb-2 block">
+                  勘定科目
+                </label>
+                <select
+                  value={accountCategory}
+                  onChange={(e) => setAccountCategory(e.target.value)}
+                  className="w-full px-4 py-3 bg-white border-2 border-stone-200 rounded-xl text-stone-800 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                >
+                  {accountCategories.length === 0 && (
+                    <option value="">（勘定科目が未登録）</option>
+                  )}
+                  {accountCategories.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-sm font-semibold text-stone-600 mb-2 block">
+                  負担部署
+                </label>
+                <select
+                  value={chargingDepartmentSelection}
+                  onChange={(e) =>
+                    setChargingDepartmentSelection(e.target.value)
+                  }
+                  className="w-full px-4 py-3 bg-white border-2 border-stone-200 rounded-xl text-stone-800 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                >
+                  {chargingDepartments.length === 0 && (
+                    <option value="">（負担部署が未登録）</option>
+                  )}
+                  {chargingDepartments.map((d) => (
+                    <option key={d} value={d}>
+                      {d}
+                    </option>
+                  ))}
+                </select>
+                {isOther && (
+                  <input
+                    type="text"
+                    value={chargingDepartmentOther}
+                    onChange={(e) =>
+                      setChargingDepartmentOther(e.target.value)
+                    }
+                    placeholder="負担部署名を入力"
+                    className="mt-2 w-full px-4 py-3 bg-white border-2 border-amber-200 rounded-xl text-stone-800 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  />
+                )}
+              </div>
             </div>
 
             <div>

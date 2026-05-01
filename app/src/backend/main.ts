@@ -30,6 +30,14 @@ import {
   removePurchaser,
   migrateLegacyStatuses,
   getCurrentUser,
+  getAccountCategoryList,
+  addAccountCategory,
+  removeAccountCategory,
+  getChargingDepartmentList,
+  addChargingDepartment,
+  removeChargingDepartment,
+  getSystemSettings,
+  updateSystemSetting,
 } from './serverFunctions';
 
 declare const global: {
@@ -64,3 +72,11 @@ global.addPurchaser = addPurchaser;
 global.removePurchaser = removePurchaser;
 global.migrateLegacyStatuses = migrateLegacyStatuses;
 global.getCurrentUser = getCurrentUser;
+global.getAccountCategoryList = getAccountCategoryList;
+global.addAccountCategory = addAccountCategory;
+global.removeAccountCategory = removeAccountCategory;
+global.getChargingDepartmentList = getChargingDepartmentList;
+global.addChargingDepartment = addChargingDepartment;
+global.removeChargingDepartment = removeChargingDepartment;
+global.getSystemSettings = getSystemSettings;
+global.updateSystemSetting = updateSystemSetting;

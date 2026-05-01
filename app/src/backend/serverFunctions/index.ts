@@ -74,9 +74,46 @@ export function addApplication(data: {
   reason: string;
   productUrl?: string;
   selectedApprover?: string;
+  accountCategory?: string;
+  chargingDepartment?: string;
   file?: { name: string; mimeType: string; data: string };
 }): Application {
   return ApplicationService.addApplication(data);
+}
+
+export function getAccountCategoryList(): string[] {
+  return ApplicationService.getAccountCategoryList();
+}
+
+export function addAccountCategory(name: string): string[] {
+  return ApplicationService.addAccountCategory(name);
+}
+
+export function removeAccountCategory(name: string): string[] {
+  return ApplicationService.removeAccountCategory(name);
+}
+
+export function getChargingDepartmentList(): string[] {
+  return ApplicationService.getChargingDepartmentList();
+}
+
+export function addChargingDepartment(name: string): string[] {
+  return ApplicationService.addChargingDepartment(name);
+}
+
+export function removeChargingDepartment(name: string): string[] {
+  return ApplicationService.removeChargingDepartment(name);
+}
+
+export function getSystemSettings(): Record<string, string> {
+  return ApplicationService.getSystemSettings();
+}
+
+export function updateSystemSetting(
+  key: string,
+  value: string,
+): Record<string, string> {
+  return ApplicationService.updateSystemSetting(key, value);
 }
 
 export function getStatistics() {

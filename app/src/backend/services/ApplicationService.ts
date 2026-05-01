@@ -18,6 +18,8 @@ import {
     ERROR_MESSAGES,
     getSpreadsheet,
     DEFAULT_CONFIG,
+    SETTING_KEYS,
+    SETTING_DEFAULTS,
 } from '../config';
 import { safeParseInt, safeParseFloat, formatError } from '../utils/format';
 import { NotificationService } from './NotificationService';
@@ -371,6 +373,8 @@ export class ApplicationService {
         reason: string;
         productUrl?: string;
         selectedApprover?: string;
+        accountCategory?: string;
+        chargingDepartment?: string;
         file?: { name: string; mimeType: string; data: string };
     }): Application {
         if (data.file) {
@@ -403,6 +407,8 @@ export class ApplicationService {
             '',                         // R: 注文日
             '',                         // S: 実際金額
             '',                         // T: 差額
+            data.accountCategory || '', // U: 勘定科目
+            data.chargingDepartment || '', // V: 負担部署
         ];
 
         const newRowIndex = this.withLock(() => {
@@ -434,6 +440,8 @@ export class ApplicationService {
             orderedDate: null,
             actualAmount: null,
             amountDiff: null,
+            accountCategory: data.accountCategory || '',
+            chargingDepartment: data.chargingDepartment || '',
         };
 
         // 承認者にメール通知（失敗してもアプリは止めない）
@@ -461,6 +469,191 @@ export class ApplicationService {
      */
     static getPurchaserList(): Purchaser[] {
         return this.getMemberList(SHEET_NAMES.PURCHASER_LIST);
+    }
+
+    /**
+     * 勘定科目リストを取得（A列のみの単一列シート）
+     */
+    static getAccountCategoryList(): string[] {
+        return this.getSimpleNameList(SHEET_NAMES.ACCOUNT_CATEGORY_LIST);
+    }
+
+    /**
+     * 負担部署リストを取得（A列のみの単一列シート）
+     * 末尾に「その他」を必ず付与する（クライアント側で自由入力に切替）
+     */
+    static getChargingDepartmentList(): string[] {
+        const list = this.getSimpleNameList(SHEET_NAMES.CHARGING_DEPARTMENT_LIST);
+        // ユーザーがシートで「その他」を登録していたら重複追加しない
+        if (list.includes('その他')) return list;
+        return [...list, 'その他'];
+    }
+
+    /**
+     * 単一列シート（A列のみ）からトリム済みの名前リストを取得
+     */
+    private static getSimpleNameList(sheetName: string): string[] {
+        try {
+            const sheet = this.getSheet(sheetName);
+            const lastRow = sheet.getLastRow();
+            if (lastRow < 2) return [];
+            const data = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+            return data
+                .map((row) => String(row[0] ?? '').trim())
+                .filter((v) => v.length > 0);
+        } catch (e) {
+            Logger.log(`${sheetName}の取得エラー: ${formatError(e)}`);
+            return [];
+        }
+    }
+
+    /**
+     * 単一列シートに項目を追加
+     */
+    private static appendSimpleName(sheetName: string, name: string): string[] {
+        const clean = (name || '').trim();
+        if (!clean) throw new Error('名前は必須です');
+        if (this.getSimpleNameList(sheetName).includes(clean)) {
+            return this.getSimpleNameList(sheetName);
+        }
+        this.withLock(() => {
+            const sheet = this.getSheet(sheetName);
+            sheet.appendRow([clean]);
+            SpreadsheetApp.flush();
+        });
+        return this.getSimpleNameList(sheetName);
+    }
+
+    /**
+     * 単一列シートから項目を削除（最初に一致した行を削除）
+     */
+    private static removeSimpleName(sheetName: string, name: string): string[] {
+        const target = (name || '').trim();
+        if (!target) throw new Error('名前は必須です');
+        this.withLock(() => {
+            const sheet = this.getSheet(sheetName);
+            const lastRow = sheet.getLastRow();
+            if (lastRow < 2) return;
+            const data = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+            for (let i = 0; i < data.length; i++) {
+                if (String(data[i][0] ?? '').trim() === target) {
+                    sheet.deleteRow(i + 2);
+                    SpreadsheetApp.flush();
+                    return;
+                }
+            }
+        });
+        return this.getSimpleNameList(sheetName);
+    }
+
+    static addAccountCategory(name: string): string[] {
+        this.assertCallerIsAdmin();
+        return this.appendSimpleName(SHEET_NAMES.ACCOUNT_CATEGORY_LIST, name);
+    }
+
+    static removeAccountCategory(name: string): string[] {
+        this.assertCallerIsAdmin();
+        return this.removeSimpleName(SHEET_NAMES.ACCOUNT_CATEGORY_LIST, name);
+    }
+
+    static addChargingDepartment(name: string): string[] {
+        this.assertCallerIsAdmin();
+        if (name.trim() === 'その他') {
+            throw new Error('「その他」は固定項目のため追加不要です');
+        }
+        return this.appendSimpleName(SHEET_NAMES.CHARGING_DEPARTMENT_LIST, name);
+    }
+
+    static removeChargingDepartment(name: string): string[] {
+        this.assertCallerIsAdmin();
+        return this.removeSimpleName(SHEET_NAMES.CHARGING_DEPARTMENT_LIST, name);
+    }
+
+    /**
+     * 操作者が承認者・確認者・購入者のいずれかであることを保証する。
+     * マスタデータ編集（リスト管理・設定変更）の権限境界として使う。
+     */
+    private static assertCallerIsAdmin(): void {
+        const email = Session.getActiveUser().getEmail();
+        const isAdmin =
+            this.isApprover(email) ||
+            this.isConfirmer(email) ||
+            this.isPurchaser(email);
+        if (!isAdmin) {
+            throw new Error('権限がありません: 管理者ロールが必要です');
+        }
+    }
+
+    /**
+     * システム設定を全件取得
+     * 値は文字列のまま返す（呼び出し元で変換）
+     */
+    static getSystemSettings(): Record<string, string> {
+        const result: Record<string, string> = {};
+        try {
+            const sheet = this.getSheet(SHEET_NAMES.SYSTEM_SETTINGS);
+            const lastRow = sheet.getLastRow();
+            if (lastRow >= 2) {
+                const data = sheet.getRange(2, 1, lastRow - 1, 2).getValues();
+                for (const row of data) {
+                    const k = String(row[0] ?? '').trim();
+                    if (!k) continue;
+                    result[k] = String(row[1] ?? '');
+                }
+            }
+        } catch (e) {
+            Logger.log(`システム設定の取得エラー: ${formatError(e)}`);
+        }
+        // デフォルト値で穴埋め
+        for (const [k, v] of Object.entries(SETTING_DEFAULTS)) {
+            if (!(k in result)) result[k] = String(v);
+        }
+        return result;
+    }
+
+    /**
+     * 物品申請が必要になる金額しきい値（数値で取得）
+     */
+    static getRequiresItemRequestThreshold(): number {
+        const settings = this.getSystemSettings();
+        const raw = settings[SETTING_KEYS.REQUIRES_ITEM_REQUEST_THRESHOLD];
+        const n = Number(raw);
+        return Number.isFinite(n) && n >= 0
+            ? n
+            : SETTING_DEFAULTS[SETTING_KEYS.REQUIRES_ITEM_REQUEST_THRESHOLD];
+    }
+
+    /**
+     * システム設定を更新（変更は購入者のみ許可）
+     */
+    static updateSystemSetting(key: string, value: string): Record<string, string> {
+        const callerEmail = Session.getActiveUser().getEmail();
+        if (!this.isPurchaser(callerEmail)) {
+            throw new Error('権限がありません: 購入者のみ設定を変更できます');
+        }
+        const cleanKey = (key || '').trim();
+        if (!cleanKey) throw new Error('設定キーが不正です');
+
+        this.withLock(() => {
+            const sheet = this.getSheet(SHEET_NAMES.SYSTEM_SETTINGS);
+            const lastRow = sheet.getLastRow();
+            if (lastRow >= 2) {
+                const range = sheet.getRange(2, 1, lastRow - 1, 2);
+                const data = range.getValues();
+                for (let i = 0; i < data.length; i++) {
+                    if (String(data[i][0] ?? '').trim() === cleanKey) {
+                        sheet.getRange(i + 2, 2).setValue(value);
+                        SpreadsheetApp.flush();
+                        return;
+                    }
+                }
+            }
+            // 既存行が無ければ末尾に追加
+            sheet.appendRow([cleanKey, value]);
+            SpreadsheetApp.flush();
+        });
+
+        return this.getSystemSettings();
     }
 
     /**
@@ -757,6 +950,8 @@ export class ApplicationService {
                     amountDiffRaw === '' || amountDiffRaw == null
                         ? null
                         : safeParseFloat(amountDiffRaw as string | number, 0),
+                accountCategory: String(row[COLUMN_INDEX.ACCOUNT_CATEGORY] ?? ''),
+                chargingDepartment: String(row[COLUMN_INDEX.CHARGING_DEPARTMENT] ?? ''),
             };
 
             return app;

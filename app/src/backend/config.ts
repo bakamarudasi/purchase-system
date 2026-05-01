@@ -17,6 +17,12 @@ export const SHEET_NAMES = {
     CONFIRMER_LIST: '確認者リスト',
     /** 購入者リストシート（高橋さん、高松さんなど） */
     PURCHASER_LIST: '購入者リスト',
+    /** 勘定科目リストシート（A列のみ: 名前） */
+    ACCOUNT_CATEGORY_LIST: '勘定科目リスト',
+    /** 負担部署リストシート（A列のみ: 名前。「その他」は固定で末尾扱い） */
+    CHARGING_DEPARTMENT_LIST: '負担部署リスト',
+    /** システム設定シート (A=KEY, B=VALUE) */
+    SYSTEM_SETTINGS: 'システム設定',
     /** アーカイブ用の過去の申請シート */
     PAST_APPLICATIONS: '過去の申請',
 } as const;
@@ -46,7 +52,29 @@ export const COLUMN_INDEX = {
     ORDERED_DATE: 17,    // R列: 注文日
     ACTUAL_AMOUNT: 18,   // S列: 実際金額
     AMOUNT_DIFF: 19,     // T列: 差額（実際金額 - 申請合計）
+    ACCOUNT_CATEGORY: 20,    // U列: 勘定科目
+    CHARGING_DEPARTMENT: 21, // V列: 負担部署
 } as const;
+
+/**
+ * システム設定のキー（システム設定シートに保存）
+ */
+export const SETTING_KEYS = {
+    /** 物品申請が必要になる金額しきい値（円） */
+    REQUIRES_ITEM_REQUEST_THRESHOLD: 'REQUIRES_ITEM_REQUEST_THRESHOLD',
+} as const;
+
+/**
+ * 設定のデフォルト値（シートに値が無い場合に使う）
+ */
+export const SETTING_DEFAULTS = {
+    [SETTING_KEYS.REQUIRES_ITEM_REQUEST_THRESHOLD]: 50_000,
+} as const;
+
+/**
+ * 負担部署選択肢の固定末尾値（自由入力切替用）
+ */
+export const OTHER_OPTION_LABEL = 'その他';
 
 /**
  * ステータス値

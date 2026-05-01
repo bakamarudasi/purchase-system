@@ -88,6 +88,10 @@ export interface Application {
     actualAmount: number | null;
     /** 申請合計との差額（実際金額 - 合計金額） */
     amountDiff: number | null;
+    /** 勘定科目（リストから選択） */
+    accountCategory: string;
+    /** 負担部署（リスト選択 or 「その他」の自由入力テキスト） */
+    chargingDepartment: string;
     /**
      * クライアント側でのみ使う一時ステータス。
      * 楽観的UIで「送信中」「送信失敗」を表現する用途。

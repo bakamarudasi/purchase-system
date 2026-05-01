@@ -20,6 +20,8 @@ const CSV_HEADERS = [
   '注文日時',
   '実際金額',
   '差額',
+  '勘定科目',
+  '負担部署',
 ] as const;
 
 /**
@@ -69,6 +71,8 @@ export function applicationsToCsv(apps: Application[]): string {
         formatCsvDate(a.orderedDate),
         a.actualAmount ?? '',
         a.amountDiff ?? '',
+        a.accountCategory,
+        a.chargingDepartment,
       ]
         .map(escapeCsvCell)
         .join(','),

@@ -66,6 +66,9 @@ export function useApplications(onError: (msg: string) => void) {
   const [approvers, setApprovers] = useState<Approver[]>([]);
   const [confirmers, setConfirmers] = useState<Confirmer[]>([]);
   const [purchasers, setPurchasers] = useState<Purchaser[]>([]);
+  const [accountCategories, setAccountCategories] = useState<string[]>([]);
+  const [chargingDepartments, setChargingDepartments] = useState<string[]>([]);
+  const [systemSettings, setSystemSettings] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
@@ -128,19 +131,28 @@ export function useApplications(onError: (msg: string) => void) {
           { email: 'takahashi@example.com', name: '高橋 購入太郎' },
           { email: 'takamatsu@example.com', name: '高松 購入次郎' },
         ]);
+        setAccountCategories(['設備課の備品費', '消耗品費', '修繕費']);
+        setChargingDepartments(['設備技術課', '生産技術課', 'その他']);
+        setSystemSettings({ REQUIRES_ITEM_REQUEST_THRESHOLD: '50000' });
         return;
       }
       try {
-        const [appr, conf, purch] = await Promise.all([
+        const [appr, conf, purch, accts, depts, settings] = await Promise.all([
           serverFunctions.getApproverList(),
           serverFunctions.getConfirmerList(),
           serverFunctions.getPurchaserList(),
+          serverFunctions.getAccountCategoryList(),
+          serverFunctions.getChargingDepartmentList(),
+          serverFunctions.getSystemSettings(),
         ]);
         setApprovers(appr);
         setConfirmers(conf);
         setPurchasers(purch);
+        setAccountCategories(accts);
+        setChargingDepartments(depts);
+        setSystemSettings(settings);
       } catch (e) {
-        console.error('メンバーリスト取得エラー:', e);
+        console.error('マスタデータ取得エラー:', e);
       }
     };
 
@@ -295,6 +307,8 @@ export function useApplications(onError: (msg: string) => void) {
         orderedDate: null,
         actualAmount: null,
         amountDiff: null,
+        accountCategory: data.accountCategory ?? '',
+        chargingDepartment: data.chargingDepartment ?? '',
         clientStatus: 'sending',
       };
 
@@ -397,6 +411,58 @@ export function useApplications(onError: (msg: string) => void) {
     setPurchasers(list);
   }, []);
 
+  const addAccountCategory = useCallback(async (name: string) => {
+    if (!isProd) {
+      setAccountCategories((prev) =>
+        prev.includes(name) ? prev : [...prev, name],
+      );
+      return;
+    }
+    const list = await serverFunctions.addAccountCategory(name);
+    setAccountCategories(list);
+  }, []);
+
+  const removeAccountCategory = useCallback(async (name: string) => {
+    if (!isProd) {
+      setAccountCategories((prev) => prev.filter((n) => n !== name));
+      return;
+    }
+    const list = await serverFunctions.removeAccountCategory(name);
+    setAccountCategories(list);
+  }, []);
+
+  const addChargingDepartment = useCallback(async (name: string) => {
+    if (!isProd) {
+      setChargingDepartments((prev) =>
+        prev.includes(name) ? prev : [...prev.filter((n) => n !== 'その他'), name, 'その他'],
+      );
+      return;
+    }
+    const list = await serverFunctions.addChargingDepartment(name);
+    setChargingDepartments(list);
+  }, []);
+
+  const removeChargingDepartment = useCallback(async (name: string) => {
+    if (!isProd) {
+      setChargingDepartments((prev) => prev.filter((n) => n !== name));
+      return;
+    }
+    const list = await serverFunctions.removeChargingDepartment(name);
+    setChargingDepartments(list);
+  }, []);
+
+  const updateSystemSetting = useCallback(
+    async (key: string, value: string) => {
+      if (!isProd) {
+        setSystemSettings((prev) => ({ ...prev, [key]: value }));
+        return;
+      }
+      const next = await serverFunctions.updateSystemSetting(key, value);
+      setSystemSettings(next);
+    },
+    [],
+  );
+
   /**
    * 楽観UI で失敗した仮データを一覧から削除
    */
@@ -495,5 +561,13 @@ export function useApplications(onError: (msg: string) => void) {
     removeConfirmer,
     addPurchaser,
     removePurchaser,
+    accountCategories,
+    addAccountCategory,
+    removeAccountCategory,
+    chargingDepartments,
+    addChargingDepartment,
+    removeChargingDepartment,
+    systemSettings,
+    updateSystemSetting,
   };
 }
