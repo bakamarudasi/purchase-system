@@ -68,4 +68,10 @@ export interface Application {
     approvalDate: string | null;
     /** コメント */
     comment: string;
+    /**
+     * クライアント側でのみ使う一時ステータス。
+     * 楽観的UIで「送信中」「送信失敗」を表現する用途。
+     * バックエンドからは常に未設定（undefined）。
+     */
+    clientStatus?: 'sending' | 'failed';
 }

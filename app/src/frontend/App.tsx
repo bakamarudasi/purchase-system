@@ -1,27 +1,42 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ApplicationDetail } from './components/ApplicationDetail';
 import { ApplicationTable } from './components/ApplicationTable';
+import { Dashboard } from './components/Dashboard';
 import { FilterBar, type FilterKey } from './components/FilterBar';
 import { Header } from './components/Header';
+import { MyHistory } from './components/MyHistory';
 import { NewApplicationForm } from './components/NewApplicationForm';
 import { Statistics } from './components/Statistics';
 import { Toaster } from './components/Toaster';
+import type { ViewKey } from './components/ViewSwitcher';
 import { useApplications } from './hooks/useApplications';
+import { useOnlineStatus } from './hooks/useOnlineStatus';
 import { useToasts } from './hooks/useToasts';
 import { useVisibleTabs } from './hooks/useVisibleTabs';
 import type { Application, SortConfig } from './types';
 
 function App() {
   const { toasts, pushToast } = useToasts();
+  const online = useOnlineStatus();
 
   const onError = useCallback(
     (msg: string) => pushToast('error', msg),
     [pushToast],
   );
 
-  const { apps, stats, currentUser, approvers, loading, approve, reject, submitNew } =
-    useApplications(onError);
+  const {
+    apps,
+    stats,
+    currentUser,
+    approvers,
+    loading,
+    approve,
+    reject,
+    submitNew,
+    discardOptimistic,
+  } = useApplications(onError);
 
+  const [view, setView] = useState<ViewKey>('list');
   const [filter, setFilter] = useState<FilterKey>('all');
   const [visibleTabs, setVisibleTabs] = useVisibleTabs();
   const [sortConfig, setSortConfig] = useState<SortConfig>({
@@ -74,13 +89,15 @@ function App() {
   const handleNewApplication = async (
     data: Parameters<typeof submitNew>[0],
   ) => {
+    // 楽観UI: フォームは即閉じて一覧に仮データが先に出る
+    setIsNewAppFormOpen(false);
+    pushToast('info', '送信中...');
     try {
       await submitNew(data);
-      setIsNewAppFormOpen(false);
       pushToast('success', '新規申請が完了しました');
     } catch (e) {
       console.error('新規申請エラー:', e);
-      pushToast('error', '新規申請に失敗しました');
+      pushToast('error', '新規申請に失敗しました（下書きは保持されています）');
     }
   };
 
@@ -101,33 +118,56 @@ function App() {
         <Toaster toasts={toasts} />
         <Header
           currentUser={currentUser}
+          view={view}
+          onViewChange={setView}
+          online={online}
           onNewApplication={() => setIsNewAppFormOpen(true)}
         />
 
-        <div className="p-8">
-          <Statistics
-            stats={stats}
-            collapsed={isStatsCollapsed}
-            onToggle={() => setIsStatsCollapsed((v) => !v)}
-          />
+        {view === 'list' && (
+          <>
+            <div className="p-8">
+              <Statistics
+                stats={stats}
+                collapsed={isStatsCollapsed}
+                onToggle={() => setIsStatsCollapsed((v) => !v)}
+              />
 
-          <FilterBar
-            filter={filter}
-            stats={stats}
-            visibleTabs={visibleTabs}
-            onFilterChange={setFilter}
-            onVisibleTabsChange={setVisibleTabs}
-          />
-        </div>
+              <FilterBar
+                filter={filter}
+                stats={stats}
+                visibleTabs={visibleTabs}
+                onFilterChange={setFilter}
+                onVisibleTabsChange={setVisibleTabs}
+              />
+            </div>
 
-        <div className="px-8 pb-8">
-          <ApplicationTable
-            applications={filteredApps}
-            sortConfig={sortConfig}
-            onSort={handleSort}
-            onSelect={setSelectedApp}
-          />
-        </div>
+            <div className="px-8 pb-8">
+              <ApplicationTable
+                applications={filteredApps}
+                sortConfig={sortConfig}
+                onSort={handleSort}
+                onSelect={setSelectedApp}
+              />
+            </div>
+          </>
+        )}
+
+        {view === 'mine' && (
+          <div className="p-8">
+            <MyHistory
+              applications={apps}
+              currentUser={currentUser}
+              onSelect={setSelectedApp}
+            />
+          </div>
+        )}
+
+        {view === 'dashboard' && (
+          <div className="p-8">
+            <Dashboard applications={apps} />
+          </div>
+        )}
       </div>
 
       {selectedApp && (
@@ -135,8 +175,26 @@ function App() {
           application={selectedApp}
           currentUser={currentUser}
           onClose={() => setSelectedApp(null)}
-          onApprove={handleApprove}
-          onReject={handleReject}
+          onApprove={
+            selectedApp.clientStatus
+              ? async () => {
+                  pushToast('info', '送信中の申請は承認できません');
+                }
+              : handleApprove
+          }
+          onReject={
+            selectedApp.clientStatus
+              ? async () => {
+                  if (selectedApp.clientStatus === 'failed') {
+                    discardOptimistic(selectedApp.rowIndex);
+                    setSelectedApp(null);
+                    pushToast('info', '失敗した送信を破棄しました');
+                  } else {
+                    pushToast('info', '送信中の申請は却下できません');
+                  }
+                }
+              : handleReject
+          }
         />
       )}
 

@@ -21,17 +21,21 @@ const EMPTY_STATS: Statistics = {
 const EMPTY_USER: CurrentUser = { email: '', name: '', department: '' };
 
 function calculateStats(apps: Application[]): Statistics {
-  const total = apps.length;
-  const pending = apps.filter((a) => a.status === '未対応').length;
-  const approved = apps.filter((a) => a.status === '承認').length;
-  const rejected = apps.filter((a) => a.status === '却下').length;
-  const totalApprovedAmount = apps
+  // 楽観UIの仮データ（rowIndex < 0）は集計から除外する
+  const real = apps.filter((a) => a.rowIndex >= 0 && !a.clientStatus);
+  const total = real.length;
+  const pending = real.filter((a) => a.status === '未対応').length;
+  const approved = real.filter((a) => a.status === '承認').length;
+  const rejected = real.filter((a) => a.status === '却下').length;
+  const totalApprovedAmount = real
     .filter((a) => a.status === '承認')
     .reduce((sum, a) => sum + a.totalPrice, 0);
   return { total, pending, approved, rejected, totalApprovedAmount };
 }
 
 const isProd = import.meta.env.PROD;
+
+type SubmitPayload = Parameters<typeof serverFunctions.addApplication>[0];
 
 export function useApplications(onError: (msg: string) => void) {
   const [apps, setApps] = useState<Application[]>([]);
@@ -104,7 +108,6 @@ export function useApplications(onError: (msg: string) => void) {
   const approve = useCallback(
     async (rowIndex: number, approver: string, comment: string) => {
       if (!isProd) return;
-      await serverFunctions.approveApplication(rowIndex, approver, comment);
       setApps((prev) => {
         const next = prev.map((app) =>
           app.rowIndex === rowIndex
@@ -120,14 +123,19 @@ export function useApplications(onError: (msg: string) => void) {
         setStats(calculateStats(next));
         return next;
       });
+      try {
+        await serverFunctions.approveApplication(rowIndex, approver, comment);
+      } catch (e) {
+        await refresh();
+        throw e;
+      }
     },
-    [],
+    [refresh],
   );
 
   const reject = useCallback(
     async (rowIndex: number, approver: string, comment: string) => {
       if (!isProd) return;
-      await serverFunctions.rejectApplication(rowIndex, approver, comment);
       setApps((prev) => {
         const next = prev.map((app) =>
           app.rowIndex === rowIndex
@@ -143,48 +151,96 @@ export function useApplications(onError: (msg: string) => void) {
         setStats(calculateStats(next));
         return next;
       });
+      try {
+        await serverFunctions.rejectApplication(rowIndex, approver, comment);
+      } catch (e) {
+        await refresh();
+        throw e;
+      }
+    },
+    [refresh],
+  );
+
+  /**
+   * 新規申請の楽観送信。
+   *
+   * 1. 仮の Application を作って先に一覧に差し込む（clientStatus = 'sending'）
+   * 2. サーバ応答が返ったら本物に置き換える
+   * 3. 失敗したら clientStatus を 'failed' に変更
+   */
+  const submitNew = useCallback(
+    async (
+      data: SubmitPayload,
+    ): Promise<{ tempId: number; finalRowIndex: number | null }> => {
+      const tempId = -Date.now();
+      const optimistic: Application = {
+        rowIndex: tempId,
+        timestamp: new Date().toISOString(),
+        name: data.name,
+        department: data.department,
+        itemName: data.itemName,
+        quantity: data.quantity,
+        unitPrice: data.unitPrice,
+        totalPrice: data.quantity * data.unitPrice,
+        reason: data.reason,
+        productUrl: data.productUrl ?? null,
+        fileInfo: null,
+        status: '未対応',
+        approver: data.selectedApprover ?? '',
+        approvalDate: null,
+        comment: '',
+        clientStatus: 'sending',
+      };
+
+      setApps((prev) => {
+        const next = [optimistic, ...prev];
+        setStats(calculateStats(next));
+        return next;
+      });
+
+      if (!isProd) {
+        setApps((prev) => {
+          const next = prev.map((a) =>
+            a.rowIndex === tempId ? { ...a, clientStatus: undefined } : a,
+          );
+          setStats(calculateStats(next));
+          return next;
+        });
+        return { tempId, finalRowIndex: tempId };
+      }
+
+      try {
+        const created = await serverFunctions.addApplication(data);
+        setApps((prev) => {
+          const next = prev.map((a) => (a.rowIndex === tempId ? created : a));
+          setStats(calculateStats(next));
+          return next;
+        });
+        return { tempId, finalRowIndex: created.rowIndex };
+      } catch (e) {
+        setApps((prev) => {
+          const next = prev.map((a) =>
+            a.rowIndex === tempId ? { ...a, clientStatus: 'failed' as const } : a,
+          );
+          setStats(calculateStats(next));
+          return next;
+        });
+        throw e;
+      }
     },
     [],
   );
 
-  const submitNew = useCallback(
-    async (data: Parameters<typeof serverFunctions.addApplication>[0]) => {
-      if (!isProd) {
-        // 開発時はローカルでスタブ Application を作って画面を確認できるようにする
-        const stub: Application = {
-          rowIndex: Date.now(),
-          timestamp: new Date().toISOString(),
-          name: data.name,
-          department: data.department,
-          itemName: data.itemName,
-          quantity: data.quantity,
-          unitPrice: data.unitPrice,
-          totalPrice: data.quantity * data.unitPrice,
-          reason: data.reason,
-          productUrl: data.productUrl ?? null,
-          fileInfo: null,
-          status: '未対応',
-          approver: data.selectedApprover ?? '',
-          approvalDate: null,
-          comment: '',
-        };
-        setApps((prev) => {
-          const next = [stub, ...prev];
-          setStats(calculateStats(next));
-          return next;
-        });
-        return stub;
-      }
-      const created = await serverFunctions.addApplication(data);
-      setApps((prev) => {
-        const next = [created, ...prev];
-        setStats(calculateStats(next));
-        return next;
-      });
-      return created;
-    },
-    [],
-  );
+  /**
+   * 楽観UI で失敗した仮データを一覧から削除
+   */
+  const discardOptimistic = useCallback((tempId: number) => {
+    setApps((prev) => {
+      const next = prev.filter((a) => a.rowIndex !== tempId);
+      setStats(calculateStats(next));
+      return next;
+    });
+  }, []);
 
   return {
     apps,
@@ -196,5 +252,6 @@ export function useApplications(onError: (msg: string) => void) {
     approve,
     reject,
     submitNew,
+    discardOptimistic,
   };
 }

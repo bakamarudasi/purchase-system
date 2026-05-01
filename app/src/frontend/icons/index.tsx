@@ -95,3 +95,77 @@ export const ChevronDown = ({ size = 24, className }: IconProps) => (
     <polyline points="6 9 12 15 18 9" />
   </svg>
 );
+
+export const User = ({ size = 24, className }: IconProps) => (
+  <svg xmlns="http://www.w3.org/2000/svg" {...baseProps(size, className)}>
+    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+    <circle cx="12" cy="7" r="4" />
+  </svg>
+);
+
+export const LayoutDashboard = ({ size = 24, className }: IconProps) => (
+  <svg xmlns="http://www.w3.org/2000/svg" {...baseProps(size, className)}>
+    <rect x="3" y="3" width="7" height="9" />
+    <rect x="14" y="3" width="7" height="5" />
+    <rect x="14" y="12" width="7" height="9" />
+    <rect x="3" y="16" width="7" height="5" />
+  </svg>
+);
+
+export const List = ({ size = 24, className }: IconProps) => (
+  <svg xmlns="http://www.w3.org/2000/svg" {...baseProps(size, className)}>
+    <line x1="8" y1="6" x2="21" y2="6" />
+    <line x1="8" y1="12" x2="21" y2="12" />
+    <line x1="8" y1="18" x2="21" y2="18" />
+    <line x1="3" y1="6" x2="3.01" y2="6" />
+    <line x1="3" y1="12" x2="3.01" y2="12" />
+    <line x1="3" y1="18" x2="3.01" y2="18" />
+  </svg>
+);
+
+export const Send = ({ size = 24, className }: IconProps) => (
+  <svg xmlns="http://www.w3.org/2000/svg" {...baseProps(size, className)}>
+    <line x1="22" y1="2" x2="11" y2="13" />
+    <polygon points="22 2 15 22 11 13 2 9 22 2" />
+  </svg>
+);
+
+export const Wifi = ({ size = 24, className }: IconProps) => (
+  <svg xmlns="http://www.w3.org/2000/svg" {...baseProps(size, className)}>
+    <path d="M5 12.55a11 11 0 0 1 14.08 0" />
+    <path d="M1.42 9a16 16 0 0 1 21.16 0" />
+    <path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
+    <line x1="12" y1="20" x2="12.01" y2="20" />
+  </svg>
+);
+
+export const WifiOff = ({ size = 24, className }: IconProps) => (
+  <svg xmlns="http://www.w3.org/2000/svg" {...baseProps(size, className)}>
+    <line x1="1" y1="1" x2="23" y2="23" />
+    <path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55" />
+    <path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39" />
+    <path d="M10.71 5.05A16 16 0 0 1 22.58 9" />
+    <path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88" />
+    <path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
+    <line x1="12" y1="20" x2="12.01" y2="20" />
+  </svg>
+);
+
+export const Refresh = ({ size = 24, className }: IconProps) => (
+  <svg xmlns="http://www.w3.org/2000/svg" {...baseProps(size, className)}>
+    <polyline points="23 4 23 10 17 10" />
+    <polyline points="1 20 1 14 7 14" />
+    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10" />
+    <path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14" />
+  </svg>
+);
+
+export const Trash = ({ size = 24, className }: IconProps) => (
+  <svg xmlns="http://www.w3.org/2000/svg" {...baseProps(size, className)}>
+    <polyline points="3 6 5 6 21 6" />
+    <path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6" />
+    <path d="M10 11v6" />
+    <path d="M14 11v6" />
+    <path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2" />
+  </svg>
+);

@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
-import { X } from '../icons';
+import { useEffect, useRef, useState } from 'react';
+import { Refresh, Trash, X } from '../icons';
+import { usePersistentDraft } from '../hooks/usePersistentDraft';
 import type { Approver, CurrentUser } from '../types';
 
 export interface SubmitPayload {
@@ -13,6 +14,18 @@ export interface SubmitPayload {
   selectedApprover?: string;
   file?: { name: string; mimeType: string; data: string };
 }
+
+interface DraftPayload {
+  itemName: string;
+  quantity: number;
+  unitPrice: number;
+  reason: string;
+  productUrl: string;
+  selectedApprover: string;
+  savedAt: string;
+}
+
+const DRAFT_KEY_PREFIX = 'purchase-system:draft:';
 
 interface Props {
   currentUser: CurrentUser;
@@ -48,14 +61,71 @@ export function NewApplicationForm({
   const [selectedApprover, setSelectedApprover] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [restorePromptShown, setRestorePromptShown] = useState(false);
+  const [restoredAt, setRestoredAt] = useState<string | null>(null);
+  const [autoSavedAt, setAutoSavedAt] = useState<string | null>(null);
+
+  // ユーザー単位で下書きを分離（複数アカウントが同じブラウザを使うケース対策）
+  const draftKey = `${DRAFT_KEY_PREFIX}${currentUser.email || 'guest'}`;
+  const draft = usePersistentDraft<DraftPayload>(draftKey);
+  const initialDraft = draft.initial;
+  const draftSave = draft.save;
+  const draftClear = draft.clear;
+  const hasMountedRef = useRef(false);
 
   const totalPrice = quantity * unitPrice;
+
+  // 下書きが存在する場合、復元ダイアログを表示する
+  useEffect(() => {
+    if (!hasMountedRef.current && initialDraft) {
+      setRestorePromptShown(true);
+      hasMountedRef.current = true;
+    }
+  }, [initialDraft]);
 
   useEffect(() => {
     if (approvers.length > 0 && !selectedApprover) {
       setSelectedApprover(approvers[0].email);
     }
   }, [approvers, selectedApprover]);
+
+  // 入力内容を debounce 付きで自動保存
+  useEffect(() => {
+    // 何も入力されていない真っ新な状態は保存しない（ノイズ防止）
+    if (!itemName && !reason && !productUrl && quantity === 0 && unitPrice === 0) {
+      return;
+    }
+    const now = new Date().toISOString();
+    setAutoSavedAt(now);
+    draftSave({
+      itemName,
+      quantity,
+      unitPrice,
+      reason,
+      productUrl,
+      selectedApprover,
+      savedAt: now,
+    });
+  }, [itemName, quantity, unitPrice, reason, productUrl, selectedApprover, draftSave]);
+
+  const handleRestoreDraft = () => {
+    if (!initialDraft) return;
+    setItemName(initialDraft.itemName ?? '');
+    setQuantity(initialDraft.quantity ?? 0);
+    setUnitPrice(initialDraft.unitPrice ?? 0);
+    setReason(initialDraft.reason ?? '');
+    setProductUrl(initialDraft.productUrl ?? '');
+    if (initialDraft.selectedApprover) {
+      setSelectedApprover(initialDraft.selectedApprover);
+    }
+    setRestoredAt(initialDraft.savedAt);
+    setRestorePromptShown(false);
+  };
+
+  const handleDiscardDraft = () => {
+    draftClear();
+    setRestorePromptShown(false);
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = e.target.files?.[0] ?? null;
@@ -110,6 +180,8 @@ export function NewApplicationForm({
       }
 
       await onSubmit(base);
+      // 送信成功後は下書きをクリア
+      draftClear();
     } finally {
       setIsSubmitting(false);
     }
@@ -126,7 +198,20 @@ export function NewApplicationForm({
       >
         <div className="p-8 pb-4 flex-shrink-0">
           <div className="flex justify-between items-center mb-6">
-            <h2 className="text-2xl font-bold text-stone-800">新規購入申請</h2>
+            <div>
+              <h2 className="text-2xl font-bold text-stone-800">新規購入申請</h2>
+              {(autoSavedAt || restoredAt) && (
+                <div className="text-xs text-stone-500 mt-1 flex items-center gap-1.5">
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  下書き自動保存中
+                  {restoredAt && (
+                    <span className="text-stone-400">
+                      （前回 {formatDraftTime(restoredAt)} の下書きを復元）
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
             <button
               onClick={onClose}
               className="w-10 h-10 bg-stone-100 hover:bg-stone-200 rounded-lg flex items-center justify-center text-stone-700 transition-colors"
@@ -134,6 +219,39 @@ export function NewApplicationForm({
               <X size={20} />
             </button>
           </div>
+
+          {restorePromptShown && initialDraft && (
+            <div className="mb-4 p-4 bg-amber-50 border-2 border-amber-200 rounded-xl flex items-center justify-between gap-4">
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-semibold text-amber-900">
+                  保存された下書きがあります
+                </div>
+                <div className="text-xs text-amber-700 mt-1 truncate">
+                  {formatDraftTime(initialDraft.savedAt)} 時点 ・
+                  {initialDraft.itemName ? ` 「${initialDraft.itemName}」` : ' 未入力の下書き'}
+                </div>
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <button
+                  type="button"
+                  onClick={handleRestoreDraft}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold rounded-lg transition-colors"
+                >
+                  <Refresh size={14} />
+                  復元する
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDiscardDraft}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-stone-100 text-stone-600 text-sm font-semibold rounded-lg border border-stone-200 transition-colors"
+                  title="下書きを破棄"
+                >
+                  <Trash size={14} />
+                  破棄
+                </button>
+              </div>
+            </div>
+          )}
         </div>
         <div className="px-8 pb-8 overflow-y-auto">
           <div className="space-y-6">
@@ -270,6 +388,18 @@ export function NewApplicationForm({
       </div>
     </div>
   );
+}
+
+function formatDraftTime(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  const diffMs = Date.now() - d.getTime();
+  const diffMin = Math.floor(diffMs / 60_000);
+  if (diffMin < 1) return 'たった今';
+  if (diffMin < 60) return `${diffMin}分前`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}時間前`;
+  return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
 function readFileAsBase64(file: File): Promise<string> {
