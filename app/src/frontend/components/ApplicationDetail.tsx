@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { StatusBadge } from './StatusBadge';
+import { WorkflowStepper } from './WorkflowStepper';
 import { AlertTriangle, X } from '../icons';
 import { formatDate, getDriveFileId } from '../utils/format';
 import type { Application, CurrentUser } from '../types';
@@ -32,6 +33,28 @@ export function ApplicationDetail({
   const [actualAmountInput, setActualAmountInput] = useState<string>(
     String(application.totalPrice),
   );
+
+  // 開いた直後にスライドインさせるためのマウント検知
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setMounted(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
+
+  const handleClose = () => {
+    onClose();
+    setIsPreviewingPdf(false);
+  };
+
+  // ESC で閉じられるように
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') handleClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // 承認可能判定: 承認待ち + ログイン中ユーザー = 当該申請の承認者
   const canApprove =
@@ -94,24 +117,36 @@ export function ApplicationDetail({
   };
 
   return (
-    <div
-      className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-0 md:p-8 z-50"
-      onClick={() => {
-        onClose();
-        setIsPreviewingPdf(false);
-      }}
-    >
+    <>
+      {/* 背景オーバーレイ
+            - モバイル(<md): 全面覆ってモーダル風
+            - デスクトップ(md+): 半透明の薄いベール（一覧も透けて見える） */}
       <div
-        className="bg-white rounded-none md:rounded-3xl shadow-2xl max-w-5xl w-full h-full md:h-[90vh] overflow-hidden md:border-4 md:border-stone-200 flex flex-col relative"
-        onClick={(e) => e.stopPropagation()}
+        className={`fixed inset-0 z-40 transition-opacity duration-200 ${
+          mounted ? 'opacity-100' : 'opacity-0'
+        } bg-black/60 md:bg-black/20`}
+        onClick={handleClose}
+        aria-hidden
+      />
+      {/* スライドパネル
+            - モバイル: 画面全体
+            - デスクトップ: 右からスライドイン (幅 ~52rem) */}
+      <aside
+        role="dialog"
+        aria-modal="true"
+        aria-label={`申請詳細: ${application.itemName}`}
+        className={`fixed z-50 bg-white shadow-2xl flex flex-col
+          inset-0
+          md:inset-y-0 md:right-0 md:left-auto md:w-[min(52rem,100vw)] md:border-l-2 md:border-stone-200
+          transition-transform duration-300 ease-out
+          ${mounted ? 'translate-x-0' : 'translate-x-full'}`}
       >
+        <div className="bg-white w-full h-full overflow-hidden flex flex-col relative">
         <div className="p-4 md:p-8 pb-0 flex-shrink-0">
           <button
-            onClick={() => {
-              onClose();
-              setIsPreviewingPdf(false);
-            }}
-            className="absolute top-4 right-4 md:top-8 md:right-8 w-10 h-10 bg-stone-100 hover:bg-stone-200 rounded-lg flex items-center justify-center text-stone-700 transition-colors z-10"
+            onClick={handleClose}
+            aria-label="閉じる"
+            className="absolute top-4 right-4 md:top-6 md:right-6 w-10 h-10 bg-stone-100 hover:bg-stone-200 rounded-lg flex items-center justify-center text-stone-700 transition-colors z-10"
           >
             <X size={20} />
           </button>
@@ -168,6 +203,9 @@ export function ApplicationDetail({
           </div>
         ) : (
           <div className="p-4 md:p-8 pt-0 overflow-y-auto">
+            <div className="mb-6">
+              <WorkflowStepper application={application} />
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-8 mb-6 md:mb-8">
               <div className="bg-stone-50 border-2 border-stone-200 rounded-2xl p-6">
                 <h3 className="text-sm font-semibold text-stone-600 uppercase tracking-wide mb-4">
@@ -363,8 +401,9 @@ export function ApplicationDetail({
             )}
           </div>
         )}
-      </div>
-    </div>
+        </div>
+      </aside>
+    </>
   );
 }
 

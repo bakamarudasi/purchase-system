@@ -6,6 +6,7 @@ import { Dashboard } from './components/Dashboard';
 import { ExportModal } from './components/ExportModal';
 import { FilterBar, type FilterKey } from './components/FilterBar';
 import { Header } from './components/Header';
+import { HomeView } from './components/HomeView';
 import { MyHistory } from './components/MyHistory';
 import { NewApplicationForm } from './components/NewApplicationForm';
 import { Settings } from './components/Settings';
@@ -111,18 +112,18 @@ function App() {
   }, [filter, visibleTabs]);
 
   // 初回ユーザー読み込み完了時に、ロールに応じてデフォルトビューを決める
-  // 申請者は申請一覧タブが見えないので、'mine' を起点にする
+  // 管理者(承認者/確認者/購入者) は「ホーム」、申請者は「マイページ」起点
   useEffect(() => {
     if (viewInitialized || !currentUser.email) return;
-    setView(currentUser.role === 'admin' ? 'list' : 'mine');
+    setView(currentUser.role === 'admin' ? 'home' : 'mine');
     setViewInitialized(true);
   }, [currentUser, viewInitialized]);
 
-  // 申請者が何らかの経路で 'list' / 'settings' になったら mine に戻す（保険）
+  // 申請者が何らかの経路で 'home' / 'list' / 'settings' になったら mine に戻す（保険）
   useEffect(() => {
     if (
       currentUser.role === 'applicant' &&
-      (view === 'list' || view === 'settings')
+      (view === 'home' || view === 'list' || view === 'settings')
     ) {
       setView('mine');
     }
@@ -222,6 +223,17 @@ function App() {
           pendingForMeCount={pendingForMeCount}
           onPendingForMeClick={handlePendingForMeClick}
         />
+
+        {view === 'home' && currentUser.role === 'admin' && (
+          <div className="p-3 md:p-8">
+            <HomeView
+              applications={apps}
+              currentUser={currentUser}
+              onSelect={setSelectedApp}
+              onJumpToList={() => setView('list')}
+            />
+          </div>
+        )}
 
         {view === 'list' && (
           <>
