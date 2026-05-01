@@ -18,6 +18,7 @@ export function Header({
   onNewApplication,
 }: Props) {
   const initial = (currentUser.name || currentUser.email || '?').charAt(0).toUpperCase();
+  const isAdmin = currentUser.role === 'admin';
 
   return (
     <header className="sticky top-0 z-40 bg-white/90 backdrop-blur-xl border-b border-stone-200 shadow-sm">
@@ -27,7 +28,7 @@ export function Header({
             <h1 className="text-2xl font-bold text-stone-800">購入申請システム</h1>
             <p className="text-sm text-stone-600 mt-1">効率的な予算管理と承認フロー</p>
           </div>
-          <ViewSwitcher view={view} onChange={onViewChange} />
+          <ViewSwitcher view={view} role={currentUser.role} onChange={onViewChange} />
         </div>
         <div className="flex items-center gap-3">
           <div
@@ -45,7 +46,16 @@ export function Header({
             <div className="w-8 h-8 bg-gradient-to-br from-amber-600 to-orange-700 rounded-full flex items-center justify-center text-white text-sm font-bold">
               {initial}
             </div>
-            <span className="text-stone-700 text-sm">{currentUser.email || 'ゲスト'}</span>
+            <div className="flex flex-col leading-tight">
+              <span className="text-stone-700 text-sm">{currentUser.email || 'ゲスト'}</span>
+              <span
+                className={`text-[10px] font-bold uppercase tracking-wider ${
+                  isAdmin ? 'text-amber-700' : 'text-stone-500'
+                }`}
+              >
+                {isAdmin ? '管理者' : '申請者'}
+              </span>
+            </div>
           </div>
           <button
             onClick={onNewApplication}

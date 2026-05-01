@@ -18,7 +18,7 @@ const EMPTY_STATS: Statistics = {
   totalApprovedAmount: 0,
 };
 
-const EMPTY_USER: CurrentUser = { email: '', name: '', department: '' };
+const EMPTY_USER: CurrentUser = { email: '', name: '', department: '', role: 'applicant' };
 
 function calculateStats(apps: Application[]): Statistics {
   // 楽観UIの仮データ（rowIndex < 0）は集計から除外する
@@ -70,10 +70,14 @@ export function useApplications(onError: (msg: string) => void) {
 
     const loadUser = async () => {
       if (!isProd) {
+        // dev では URL クエリ ?role=admin で管理者プレビューに切替できるようにする
+        const params = new URLSearchParams(window.location.search);
+        const devRole = params.get('role') === 'admin' ? 'admin' : 'applicant';
         setCurrentUser({
-          email: 'dev@example.com',
-          name: '開発ユーザー',
+          email: devRole === 'admin' ? 'admin@example.com' : 'dev@example.com',
+          name: devRole === 'admin' ? '管理者 ユーザー' : '開発ユーザー',
           department: '開発部',
+          role: devRole,
         });
         return;
       }

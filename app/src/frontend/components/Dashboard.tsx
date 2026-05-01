@@ -7,10 +7,16 @@ import {
   TrendingUp,
 } from '../icons';
 import { formatYen } from '../utils/format';
-import type { Application } from '../types';
+import type { Application, CurrentUser } from '../types';
 
 interface Props {
   applications: Application[];
+  /**
+   * - `all`: 全社の集計（管理者向け）
+   * - `self`: 自分の申請だけの集計（申請者向け）
+   */
+  scope: 'all' | 'self';
+  currentUser: CurrentUser;
 }
 
 interface MonthlyBucket {
@@ -92,41 +98,69 @@ function calcLeadTime(apps: Application[]): { avgHours: number; sample: number }
   return { avgHours: totalMs / n / 3_600_000, sample: n };
 }
 
-export function Dashboard({ applications }: Props) {
-  const monthly = useMemo(() => buildMonthly(applications), [applications]);
+export function Dashboard({ applications, scope, currentUser }: Props) {
+  // scope=self の場合は自分の申請だけに絞ったデータで集計
+  const scoped = useMemo(() => {
+    if (scope === 'all') return applications;
+    if (!currentUser.email && !currentUser.name) return [];
+    return applications.filter(
+      (a) =>
+        (currentUser.name && a.name === currentUser.name) ||
+        (currentUser.email && a.name === currentUser.email),
+    );
+  }, [applications, scope, currentUser]);
+
+  const monthly = useMemo(() => buildMonthly(scoped), [scoped]);
   const deptRanking = useMemo(
-    () => buildDepartmentRanking(applications),
-    [applications],
+    () => buildDepartmentRanking(scoped),
+    [scoped],
   );
-  const leadTime = useMemo(() => calcLeadTime(applications), [applications]);
+  const leadTime = useMemo(() => calcLeadTime(scoped), [scoped]);
 
   const totalApprovedThisYear = useMemo(() => {
     const yr = new Date().getFullYear();
-    return applications
+    return scoped
       .filter((a) => {
         if (a.status !== '承認' || !a.timestamp) return false;
         const d = new Date(a.timestamp);
         return !isNaN(d.getTime()) && d.getFullYear() === yr;
       })
       .reduce((sum, a) => sum + a.totalPrice, 0);
-  }, [applications]);
+  }, [scoped]);
 
   const statusBreakdown = useMemo(() => {
     let pending = 0;
     let approved = 0;
     let rejected = 0;
     let other = 0;
-    for (const a of applications) {
+    for (const a of scoped) {
       if (a.status === '未対応') pending++;
       else if (a.status === '承認') approved++;
       else if (a.status === '却下') rejected++;
       else other++;
     }
     return { pending, approved, rejected, other };
-  }, [applications]);
+  }, [scoped]);
 
   return (
     <div className="space-y-6">
+      <div
+        className={`flex items-center gap-2 text-sm px-4 py-2 rounded-xl border ${
+          scope === 'all'
+            ? 'bg-amber-50 border-amber-200 text-amber-800'
+            : 'bg-stone-100 border-stone-200 text-stone-600'
+        }`}
+      >
+        <span className="font-semibold">
+          {scope === 'all' ? '全社サマリー' : 'マイサマリー'}
+        </span>
+        <span className="text-xs opacity-80">
+          {scope === 'all'
+            ? '全申請者を含む集計'
+            : `${currentUser.name || currentUser.email} の申請のみ`}
+        </span>
+      </div>
+
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <KpiCard
           label="今年の承認総額"
@@ -183,15 +217,17 @@ export function Dashboard({ applications }: Props) {
         </div>
       </div>
 
-      <div className="bg-white/80 backdrop-blur border border-stone-200 rounded-2xl p-6 shadow-lg">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-stone-800">
-            部署別 承認額ランキング (Top 6)
-          </h3>
-          <FileCheck className="text-stone-400" size={20} />
+      {scope === 'all' && (
+        <div className="bg-white/80 backdrop-blur border border-stone-200 rounded-2xl p-6 shadow-lg">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-stone-800">
+              部署別 承認額ランキング (Top 6)
+            </h3>
+            <FileCheck className="text-stone-400" size={20} />
+          </div>
+          <DepartmentBars data={deptRanking} />
         </div>
-        <DepartmentBars data={deptRanking} />
-      </div>
+      )}
     </div>
   );
 }

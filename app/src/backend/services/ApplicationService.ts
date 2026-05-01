@@ -80,16 +80,31 @@ export class ApplicationService {
 
     /**
      * 申請を承認
+     * 承認者リストに登録されている操作者しか実行できない
      */
     static approveApplication(rowIndex: number, approver: string, comment: string): void {
+        this.assertCallerIsApprover();
         this.updateApplicationStatus(rowIndex, STATUS.APPROVED, approver, comment);
     }
 
     /**
      * 申請を却下
+     * 承認者リストに登録されている操作者しか実行できない
      */
     static rejectApplication(rowIndex: number, approver: string, comment: string): void {
+        this.assertCallerIsApprover();
         this.updateApplicationStatus(rowIndex, STATUS.REJECTED, approver, comment);
+    }
+
+    /**
+     * 現在の操作ユーザーが承認者かを検証する。
+     * フロント側のロール分岐は迂回可能なのでサーバー側でも必ずチェックする。
+     */
+    private static assertCallerIsApprover(): void {
+        const callerEmail = Session.getActiveUser().getEmail();
+        if (!this.isApprover(callerEmail)) {
+            throw new Error('権限がありません: 承認者リストに登録されたユーザーのみ実行できます');
+        }
     }
 
     /**
@@ -181,6 +196,18 @@ export class ApplicationService {
             Logger.log(`承認者リストの取得エラー: ${formatError(e)}`);
             return [];
         }
+    }
+
+    /**
+     * email が承認者リストに登録されているかどうか
+     * 大文字小文字は区別しない（ユーザー入力ゆれ対策）
+     */
+    static isApprover(email: string): boolean {
+        if (!email) return false;
+        const target = email.trim().toLowerCase();
+        return this.getApproverList().some(
+            (a) => a.email.trim().toLowerCase() === target,
+        );
     }
 
     /**

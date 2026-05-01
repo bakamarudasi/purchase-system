@@ -36,7 +36,9 @@ function App() {
     discardOptimistic,
   } = useApplications(onError);
 
+  // ロールが取れるまでは仮で list を入れておき、確定後に出し分け
   const [view, setView] = useState<ViewKey>('list');
+  const [viewInitialized, setViewInitialized] = useState(false);
   const [filter, setFilter] = useState<FilterKey>('all');
   const [visibleTabs, setVisibleTabs] = useVisibleTabs();
   const [sortConfig, setSortConfig] = useState<SortConfig>({
@@ -53,6 +55,21 @@ function App() {
       setFilter('all');
     }
   }, [filter, visibleTabs]);
+
+  // 初回ユーザー読み込み完了時に、ロールに応じてデフォルトビューを決める
+  // 申請者は申請一覧タブが見えないので、'mine' を起点にする
+  useEffect(() => {
+    if (viewInitialized || !currentUser.email) return;
+    setView(currentUser.role === 'admin' ? 'list' : 'mine');
+    setViewInitialized(true);
+  }, [currentUser, viewInitialized]);
+
+  // 申請者が何らかの経路で view='list' になったら mine に戻す（保険）
+  useEffect(() => {
+    if (currentUser.role === 'applicant' && view === 'list') {
+      setView('mine');
+    }
+  }, [currentUser.role, view]);
 
   const handleSort = (key: SortConfig['key']) => {
     setSortConfig((prev) => ({
@@ -165,7 +182,11 @@ function App() {
 
         {view === 'dashboard' && (
           <div className="p-8">
-            <Dashboard applications={apps} />
+            <Dashboard
+              applications={apps}
+              scope={currentUser.role === 'admin' ? 'all' : 'self'}
+              currentUser={currentUser}
+            />
           </div>
         )}
       </div>

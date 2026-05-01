@@ -1,26 +1,38 @@
 import { LayoutDashboard, List, User } from '../icons';
+import type { UserRole } from '../types';
 
 export type ViewKey = 'list' | 'mine' | 'dashboard';
 
 interface Props {
   view: ViewKey;
+  role: UserRole;
   onChange: (view: ViewKey) => void;
 }
 
-const TABS: { key: ViewKey; label: string; Icon: typeof List }[] = [
-  { key: 'list', label: '申請一覧', Icon: List },
+interface TabDef {
+  key: ViewKey;
+  label: string;
+  Icon: typeof List;
+  /** このタブを表示できるロール。指定なし=全ロール */
+  roles?: UserRole[];
+}
+
+const TABS: TabDef[] = [
+  // 全社の申請一覧は管理者だけが見られる
+  { key: 'list', label: '申請一覧', Icon: List, roles: ['admin'] },
   { key: 'mine', label: 'マイページ', Icon: User },
   { key: 'dashboard', label: 'ダッシュボード', Icon: LayoutDashboard },
 ];
 
-export function ViewSwitcher({ view, onChange }: Props) {
+export function ViewSwitcher({ view, role, onChange }: Props) {
+  const visible = TABS.filter((t) => !t.roles || t.roles.includes(role));
   return (
     <nav
       role="tablist"
       aria-label="メインビュー切り替え"
       className="inline-flex bg-stone-100 border border-stone-200 rounded-xl p-1 gap-1"
     >
-      {TABS.map(({ key, label, Icon }) => {
+      {visible.map(({ key, label, Icon }) => {
         const active = view === key;
         return (
           <button

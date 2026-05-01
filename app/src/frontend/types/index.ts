@@ -18,10 +18,13 @@ export interface Statistics {
   totalApprovedAmount: number;
 }
 
+export type UserRole = 'admin' | 'applicant';
+
 export interface CurrentUser {
   email: string;
   name: string;
   department: string;
+  role: UserRole;
 }
 
 export type ToastType = 'success' | 'error' | 'info';
