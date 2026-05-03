@@ -285,15 +285,32 @@ export function useApplications(onError: (msg: string) => void) {
       data: SubmitPayload,
     ): Promise<{ tempId: number; finalRowIndex: number | null }> => {
       const tempId = -Date.now();
+      const useLineItems = (data.lineItems?.length ?? 0) >= 2;
+      const lineItems = useLineItems ? data.lineItems! : [];
+      const summaryItemName = useLineItems
+        ? lineItems.length === 1
+          ? lineItems[0].itemName
+          : `${lineItems[0].itemName} 他${lineItems.length - 1}件`
+        : data.itemName;
+      const summaryQuantity = useLineItems
+        ? lineItems.reduce((s, it) => s + (it.quantity || 0), 0)
+        : data.quantity;
+      const summaryUnitPrice = useLineItems ? 0 : data.unitPrice;
+      const summaryTotal = useLineItems
+        ? lineItems.reduce(
+            (s, it) => s + (it.quantity || 0) * (it.unitPrice || 0),
+            0,
+          )
+        : data.quantity * data.unitPrice;
       const optimistic: Application = {
         rowIndex: tempId,
         timestamp: new Date().toISOString(),
         name: data.name,
         department: data.department,
-        itemName: data.itemName,
-        quantity: data.quantity,
-        unitPrice: data.unitPrice,
-        totalPrice: data.quantity * data.unitPrice,
+        itemName: summaryItemName,
+        quantity: summaryQuantity,
+        unitPrice: summaryUnitPrice,
+        totalPrice: summaryTotal,
         reason: data.reason,
         productUrl: data.productUrl ?? null,
         fileInfo: null,
@@ -309,6 +326,7 @@ export function useApplications(onError: (msg: string) => void) {
         amountDiff: null,
         accountCategory: data.accountCategory ?? '',
         chargingDepartment: data.chargingDepartment ?? '',
+        lineItems,
         clientStatus: 'sending',
       };
 

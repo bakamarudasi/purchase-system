@@ -30,6 +30,17 @@ export type Confirmer = Approver;
 export type Purchaser = Approver;
 
 /**
+ * 複数品申請の1行分（明細）。
+ * 単品申請のときは Application.lineItems が空配列、
+ * 複数品のときは2件以上の要素を持つ。
+ */
+export interface LineItem {
+    itemName: string;
+    quantity: number;
+    unitPrice: number;
+}
+
+/**
  * 添付ファイル情報
  */
 export interface FileInfo {
@@ -92,6 +103,12 @@ export interface Application {
     accountCategory: string;
     /** 負担部署（リスト選択 or 「その他」の自由入力テキスト） */
     chargingDepartment: string;
+    /**
+     * 複数品申請の明細。
+     * 単品申請のときは空配列。
+     * 複数品のときは itemName / quantity / unitPrice / totalPrice はサマリ値が入る。
+     */
+    lineItems: LineItem[];
     /**
      * クライアント側でのみ使う一時ステータス。
      * 楽観的UIで「送信中」「送信失敗」を表現する用途。

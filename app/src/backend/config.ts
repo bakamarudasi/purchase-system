@@ -54,6 +54,7 @@ export const COLUMN_INDEX = {
     AMOUNT_DIFF: 19,     // T列: 差額（実際金額 - 申請合計）
     ACCOUNT_CATEGORY: 20,    // U列: 勘定科目
     CHARGING_DEPARTMENT: 21, // V列: 負担部署
+    LINE_ITEMS_JSON: 22,     // W列: 複数品明細 (JSON)。単品申請のときは空
 } as const;
 
 /**

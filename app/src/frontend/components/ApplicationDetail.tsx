@@ -212,22 +212,73 @@ export function ApplicationDetail({
                   申請情報
                 </h3>
                 <div className="space-y-4">
-                  <Row
-                    label="数量"
-                    value={`${application.quantity}個`}
-                  />
-                  <Row
-                    label="単価"
-                    value={`¥${application.unitPrice.toLocaleString()}`}
-                  />
-                  <Row
-                    label="合計金額"
-                    value={
-                      <span className="font-semibold text-2xl text-transparent bg-clip-text bg-gradient-to-r from-amber-700 to-orange-700">
-                        ¥{application.totalPrice.toLocaleString()}
-                      </span>
-                    }
-                  />
+                  {application.lineItems.length >= 2 ? (
+                    <>
+                      <div className="text-xs font-semibold text-stone-500 mb-1">
+                        明細（{application.lineItems.length}件）
+                      </div>
+                      <div className="overflow-x-auto -mx-2">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="text-left text-xs text-stone-500 border-b border-stone-200">
+                              <th className="px-2 py-2 font-semibold">商品名</th>
+                              <th className="px-2 py-2 font-semibold text-right">数量</th>
+                              <th className="px-2 py-2 font-semibold text-right">単価</th>
+                              <th className="px-2 py-2 font-semibold text-right">小計</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {application.lineItems.map((it, i) => (
+                              <tr
+                                key={i}
+                                className="border-b border-stone-100 last:border-b-0"
+                              >
+                                <td className="px-2 py-2 text-stone-800">
+                                  {it.itemName}
+                                </td>
+                                <td className="px-2 py-2 text-right text-stone-700">
+                                  {it.quantity}
+                                </td>
+                                <td className="px-2 py-2 text-right text-stone-700">
+                                  ¥{it.unitPrice.toLocaleString()}
+                                </td>
+                                <td className="px-2 py-2 text-right font-semibold text-stone-800">
+                                  ¥{(it.quantity * it.unitPrice).toLocaleString()}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <Row
+                        label="合計金額"
+                        value={
+                          <span className="font-semibold text-2xl text-transparent bg-clip-text bg-gradient-to-r from-amber-700 to-orange-700">
+                            ¥{application.totalPrice.toLocaleString()}
+                          </span>
+                        }
+                      />
+                    </>
+                  ) : (
+                    <>
+                      <Row
+                        label="数量"
+                        value={`${application.quantity}個`}
+                      />
+                      <Row
+                        label="単価"
+                        value={`¥${application.unitPrice.toLocaleString()}`}
+                      />
+                      <Row
+                        label="合計金額"
+                        value={
+                          <span className="font-semibold text-2xl text-transparent bg-clip-text bg-gradient-to-r from-amber-700 to-orange-700">
+                            ¥{application.totalPrice.toLocaleString()}
+                          </span>
+                        }
+                      />
+                    </>
+                  )}
                   {application.actualAmount != null && (
                     <Row
                       label="実際金額"

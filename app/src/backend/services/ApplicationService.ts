@@ -9,6 +9,7 @@ import {
     Approver,
     Confirmer,
     FileInfo,
+    LineItem,
     Purchaser,
 } from '../models/Application';
 import {
@@ -375,6 +376,8 @@ export class ApplicationService {
         selectedApprover?: string;
         accountCategory?: string;
         chargingDepartment?: string;
+        /** 複数品申請の明細。指定された場合は itemName/quantity/unitPrice はサマリ値で上書きする */
+        lineItems?: LineItem[];
         file?: { name: string; mimeType: string; data: string };
     }): Application {
         if (data.file) {
@@ -383,16 +386,36 @@ export class ApplicationService {
 
         const fileUrl = data.file ? this.uploadFile(data.file) : '';
         const timestamp = new Date();
-        const totalPrice = data.quantity * data.unitPrice;
         const approver = data.selectedApprover || '';
+
+        // 複数品モードの場合はサマリ値を計算してメイン列に格納する
+        const useLineItems = (data.lineItems?.length ?? 0) >= 2;
+        const lineItems: LineItem[] = useLineItems ? data.lineItems! : [];
+
+        const summaryItemName = useLineItems
+            ? lineItems.length === 1
+                ? lineItems[0].itemName
+                : `${lineItems[0].itemName} 他${lineItems.length - 1}件`
+            : data.itemName;
+        const summaryQuantity = useLineItems
+            ? lineItems.reduce((s, it) => s + (it.quantity || 0), 0)
+            : data.quantity;
+        const summaryUnitPrice = useLineItems ? 0 : data.unitPrice; // 単価はミックスなので 0
+        const totalPrice = useLineItems
+            ? lineItems.reduce(
+                  (s, it) => s + (it.quantity || 0) * (it.unitPrice || 0),
+                  0,
+              )
+            : data.quantity * data.unitPrice;
+        const lineItemsJson = useLineItems ? JSON.stringify(lineItems) : '';
 
         const row = [
             timestamp,                  // A: タイムスタンプ
             data.name,                  // B: 名前
             data.department,            // C: 部署
-            data.itemName,              // D: 商品名
-            data.quantity,              // E: 数量
-            data.unitPrice,             // F: 単価
+            summaryItemName,            // D: 商品名（サマリ）
+            summaryQuantity,            // E: 数量（合計）
+            summaryUnitPrice,           // F: 単価（複数品時は0）
             totalPrice,                 // G: 合計金額
             data.reason,                // H: 購入理由
             fileUrl,                    // I: 添付ファイルURL
@@ -409,6 +432,7 @@ export class ApplicationService {
             '',                         // T: 差額
             data.accountCategory || '', // U: 勘定科目
             data.chargingDepartment || '', // V: 負担部署
+            lineItemsJson,              // W: 明細JSON（単品時は空）
         ];
 
         const newRowIndex = this.withLock(() => {
@@ -423,9 +447,9 @@ export class ApplicationService {
             timestamp: timestamp.toISOString(),
             name: data.name,
             department: data.department,
-            itemName: data.itemName,
-            quantity: data.quantity,
-            unitPrice: data.unitPrice,
+            itemName: summaryItemName,
+            quantity: summaryQuantity,
+            unitPrice: summaryUnitPrice,
             totalPrice: totalPrice,
             reason: data.reason,
             productUrl: data.productUrl || null,
@@ -442,6 +466,7 @@ export class ApplicationService {
             amountDiff: null,
             accountCategory: data.accountCategory || '',
             chargingDepartment: data.chargingDepartment || '',
+            lineItems,
         };
 
         // 承認者にメール通知（失敗してもアプリは止めない）
@@ -952,12 +977,44 @@ export class ApplicationService {
                         : safeParseFloat(amountDiffRaw as string | number, 0),
                 accountCategory: String(row[COLUMN_INDEX.ACCOUNT_CATEGORY] ?? ''),
                 chargingDepartment: String(row[COLUMN_INDEX.CHARGING_DEPARTMENT] ?? ''),
+                lineItems: this.parseLineItemsJson(row[COLUMN_INDEX.LINE_ITEMS_JSON]),
             };
 
             return app;
         } catch (error) {
             Logger.log(`行${rowIndex}のパースエラー: ${formatError(error)}`);
             return null;
+        }
+    }
+
+    /**
+     * 明細 JSON をパースする。壊れていたら空配列を返す（致命傷にしない）。
+     */
+    private static parseLineItemsJson(value: unknown): LineItem[] {
+        if (!value) return [];
+        const raw = String(value).trim();
+        if (!raw) return [];
+        try {
+            const parsed = JSON.parse(raw);
+            if (!Array.isArray(parsed)) return [];
+            return parsed
+                .map((it): LineItem | null => {
+                    if (!it || typeof it !== 'object') return null;
+                    const o = it as Record<string, unknown>;
+                    const itemName = String(o.itemName ?? '').trim();
+                    if (!itemName) return null;
+                    const quantity = Number(o.quantity ?? 0);
+                    const unitPrice = Number(o.unitPrice ?? 0);
+                    return {
+                        itemName,
+                        quantity: Number.isFinite(quantity) ? quantity : 0,
+                        unitPrice: Number.isFinite(unitPrice) ? unitPrice : 0,
+                    };
+                })
+                .filter((x): x is LineItem => x !== null);
+        } catch (e) {
+            Logger.log(`明細JSONパースエラー: ${formatError(e)}`);
+            return [];
         }
     }
 

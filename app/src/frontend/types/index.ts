@@ -10,6 +10,7 @@ export type {
   Confirmer,
   Purchaser,
   FileInfo,
+  LineItem,
 } from '../../backend/models/Application';
 
 export interface Statistics {

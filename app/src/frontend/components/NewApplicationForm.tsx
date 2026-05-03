@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, Refresh, Trash, X } from '../icons';
+import { AlertTriangle, Plus, Refresh, Trash, X } from '../icons';
 import { usePersistentDraft } from '../hooks/usePersistentDraft';
-import type { Approver, CurrentUser } from '../types';
+import type { Approver, CurrentUser, LineItem } from '../types';
 
 export interface SubmitPayload {
   name: string;
@@ -14,10 +14,22 @@ export interface SubmitPayload {
   selectedApprover?: string;
   accountCategory?: string;
   chargingDepartment?: string;
+  /** 複数品モード時の明細。2件以上のときに有効扱い */
+  lineItems?: LineItem[];
   file?: { name: string; mimeType: string; data: string };
 }
 
+type FormMode = 'single' | 'multi';
+
+/** 複数品モード時の入力行。文字列で持って空入力を許容する */
+interface DraftLineItem {
+  itemName: string;
+  quantity: string;
+  unitPrice: string;
+}
+
 interface DraftPayload {
+  mode: FormMode;
   itemName: string;
   quantity: number;
   unitPrice: number;
@@ -27,8 +39,11 @@ interface DraftPayload {
   accountCategory: string;
   chargingDepartmentSelection: string;
   chargingDepartmentOther: string;
+  multiLineItems: DraftLineItem[];
   savedAt: string;
 }
+
+const EMPTY_LINE: DraftLineItem = { itemName: '', quantity: '', unitPrice: '' };
 
 const DRAFT_KEY_PREFIX = 'purchase-system:draft:';
 
@@ -64,10 +79,17 @@ export function NewApplicationForm({
   onSubmit,
   onPushToast,
 }: Props) {
+  // 入力モード（単品 / 複数品）
+  const [mode, setMode] = useState<FormMode>('single');
   // 数量・単価は数値で管理する (旧コードは文字列で持っていて NaN になっていた)
   const [itemName, setItemName] = useState('');
   const [quantity, setQuantity] = useState<number>(0);
   const [unitPrice, setUnitPrice] = useState<number>(0);
+  // 複数品モードの明細行
+  const [multiLineItems, setMultiLineItems] = useState<DraftLineItem[]>([
+    { ...EMPTY_LINE },
+    { ...EMPTY_LINE },
+  ]);
   const [reason, setReason] = useState('');
   const [productUrl, setProductUrl] = useState('');
   const [selectedApprover, setSelectedApprover] = useState('');
@@ -88,6 +110,40 @@ export function NewApplicationForm({
     ? chargingDepartmentOther.trim()
     : chargingDepartmentSelection;
 
+  // 明細行をパース済み LineItem に変換（空行は無視）
+  const parsedLineItems: LineItem[] = multiLineItems
+    .map((row) => ({
+      itemName: row.itemName.trim(),
+      quantity: Number(row.quantity || '0'),
+      unitPrice: Number(row.unitPrice || '0'),
+    }))
+    .filter(
+      (it) =>
+        it.itemName.length > 0 &&
+        Number.isFinite(it.quantity) &&
+        Number.isFinite(it.unitPrice),
+    );
+  const multiLineSubtotal = parsedLineItems.reduce(
+    (s, it) => s + it.quantity * it.unitPrice,
+    0,
+  );
+
+  const updateLineItem = (
+    index: number,
+    field: keyof DraftLineItem,
+    value: string,
+  ) => {
+    setMultiLineItems((prev) =>
+      prev.map((row, i) => (i === index ? { ...row, [field]: value } : row)),
+    );
+  };
+  const addLineItem = () =>
+    setMultiLineItems((prev) => [...prev, { ...EMPTY_LINE }]);
+  const removeLineItem = (index: number) =>
+    setMultiLineItems((prev) =>
+      prev.length <= 1 ? prev : prev.filter((_, i) => i !== index),
+    );
+
   // ユーザー単位で下書きを分離（複数アカウントが同じブラウザを使うケース対策）
   const draftKey = `${DRAFT_KEY_PREFIX}${currentUser.email || 'guest'}`;
   const draft = usePersistentDraft<DraftPayload>(draftKey);
@@ -95,8 +151,6 @@ export function NewApplicationForm({
   const draftSave = draft.save;
   const draftClear = draft.clear;
   const hasMountedRef = useRef(false);
-
-  const totalPrice = quantity * unitPrice;
 
   // 下書きが存在する場合、復元ダイアログを表示する
   useEffect(() => {
@@ -127,12 +181,23 @@ export function NewApplicationForm({
   // 入力内容を debounce 付きで自動保存
   useEffect(() => {
     // 何も入力されていない真っ新な状態は保存しない（ノイズ防止）
-    if (!itemName && !reason && !productUrl && quantity === 0 && unitPrice === 0) {
+    const hasMultiInput = multiLineItems.some(
+      (r) => r.itemName || r.quantity || r.unitPrice,
+    );
+    if (
+      !itemName &&
+      !reason &&
+      !productUrl &&
+      quantity === 0 &&
+      unitPrice === 0 &&
+      !hasMultiInput
+    ) {
       return;
     }
     const now = new Date().toISOString();
     setAutoSavedAt(now);
     draftSave({
+      mode,
       itemName,
       quantity,
       unitPrice,
@@ -142,9 +207,11 @@ export function NewApplicationForm({
       accountCategory,
       chargingDepartmentSelection,
       chargingDepartmentOther,
+      multiLineItems,
       savedAt: now,
     });
   }, [
+    mode,
     itemName,
     quantity,
     unitPrice,
@@ -154,11 +221,13 @@ export function NewApplicationForm({
     accountCategory,
     chargingDepartmentSelection,
     chargingDepartmentOther,
+    multiLineItems,
     draftSave,
   ]);
 
   const handleRestoreDraft = () => {
     if (!initialDraft) return;
+    setMode(initialDraft.mode ?? 'single');
     setItemName(initialDraft.itemName ?? '');
     setQuantity(initialDraft.quantity ?? 0);
     setUnitPrice(initialDraft.unitPrice ?? 0);
@@ -175,6 +244,9 @@ export function NewApplicationForm({
     }
     if (initialDraft.chargingDepartmentOther) {
       setChargingDepartmentOther(initialDraft.chargingDepartmentOther);
+    }
+    if (initialDraft.multiLineItems && initialDraft.multiLineItems.length > 0) {
+      setMultiLineItems(initialDraft.multiLineItems);
     }
     setRestoredAt(initialDraft.savedAt);
     setRestorePromptShown(false);
@@ -210,13 +282,28 @@ export function NewApplicationForm({
   };
 
   const handleSubmit = async () => {
-    if (!itemName.trim()) {
-      onPushToast('info', '商品名を入力してください');
-      return;
-    }
-    if (quantity <= 0 || unitPrice <= 0) {
-      onPushToast('info', '数量と単価は 1 以上を入力してください');
-      return;
+    // モード別バリデーション
+    if (mode === 'single') {
+      if (!itemName.trim()) {
+        onPushToast('info', '商品名を入力してください');
+        return;
+      }
+      if (quantity <= 0 || unitPrice <= 0) {
+        onPushToast('info', '数量と単価は 1 以上を入力してください');
+        return;
+      }
+    } else {
+      // 複数品モード: 有効行が2行以上必須、各行が完全に埋まっていること
+      const validRows = parsedLineItems.filter(
+        (it) => it.itemName && it.quantity > 0 && it.unitPrice > 0,
+      );
+      if (validRows.length < 2) {
+        onPushToast(
+          'info',
+          '複数品モードでは2行以上、各行に商品名・数量・単価を入力してください',
+        );
+        return;
+      }
     }
     if (!accountCategory) {
       onPushToast('info', '勘定科目を選択してください');
@@ -234,18 +321,34 @@ export function NewApplicationForm({
 
     setIsSubmitting(true);
     try {
-      const base: SubmitPayload = {
-        name: currentUser.name,
-        department: currentUser.department,
-        itemName,
-        quantity,
-        unitPrice,
-        reason,
-        productUrl: productUrl || undefined,
-        selectedApprover: selectedApprover || undefined,
-        accountCategory,
-        chargingDepartment: chargingDepartmentValue,
-      };
+      const base: SubmitPayload =
+        mode === 'multi'
+          ? {
+              name: currentUser.name,
+              department: currentUser.department,
+              // サマリ値はサーバ側でも算出するが、楽観UI用に渡す
+              itemName: '',
+              quantity: 0,
+              unitPrice: 0,
+              reason,
+              productUrl: productUrl || undefined,
+              selectedApprover: selectedApprover || undefined,
+              accountCategory,
+              chargingDepartment: chargingDepartmentValue,
+              lineItems: parsedLineItems,
+            }
+          : {
+              name: currentUser.name,
+              department: currentUser.department,
+              itemName,
+              quantity,
+              unitPrice,
+              reason,
+              productUrl: productUrl || undefined,
+              selectedApprover: selectedApprover || undefined,
+              accountCategory,
+              chargingDepartment: chargingDepartmentValue,
+            };
 
       if (file) {
         const data = await readFileAsBase64(file);
@@ -260,9 +363,10 @@ export function NewApplicationForm({
     }
   };
 
-  const totalPriceForWarning = quantity * unitPrice;
+  const displayedTotal =
+    mode === 'multi' ? multiLineSubtotal : quantity * unitPrice;
   const showThresholdWarning =
-    itemRequestThreshold > 0 && totalPriceForWarning >= itemRequestThreshold;
+    itemRequestThreshold > 0 && displayedTotal >= itemRequestThreshold;
 
   return (
     <div
@@ -351,72 +455,217 @@ export function NewApplicationForm({
 
             <div>
               <label className="text-sm font-semibold text-stone-600 mb-2 block">
-                商品名
+                入力モード
               </label>
-              <input
-                type="text"
-                value={itemName}
-                onChange={(e) => setItemName(e.target.value)}
-                placeholder="例: 高機能オフィスチェア"
-                className="w-full px-4 py-3 bg-white border-2 border-stone-200 rounded-xl text-stone-800 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-amber-500"
-              />
-            </div>
-
-            <div>
-              <label className="text-sm font-semibold text-stone-600 mb-2 block">
-                購入商品URL
-              </label>
-              <input
-                type="url"
-                value={productUrl}
-                onChange={(e) => setProductUrl(e.target.value)}
-                placeholder="https://example.com/product/123"
-                className="w-full px-4 py-3 bg-white border-2 border-stone-200 rounded-xl text-stone-800 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-amber-500"
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-6">
-              <div>
-                <label className="text-sm font-semibold text-stone-600 mb-2 block">
-                  数量
-                </label>
-                <input
-                  type="number"
-                  min={0}
-                  value={quantity || ''}
-                  onChange={(e) =>
-                    setQuantity(parseInt(e.target.value || '0', 10))
-                  }
-                  placeholder="0"
-                  className="w-full px-4 py-3 bg-white border-2 border-stone-200 rounded-xl text-stone-800 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-amber-500"
-                />
+              <div
+                role="tablist"
+                className="inline-flex bg-stone-100 border border-stone-200 rounded-xl p-1 gap-1"
+              >
+                {(
+                  [
+                    { key: 'single', label: '単品' },
+                    { key: 'multi', label: '複数品' },
+                  ] as const
+                ).map(({ key, label }) => {
+                  const active = mode === key;
+                  return (
+                    <button
+                      type="button"
+                      key={key}
+                      role="tab"
+                      aria-selected={active}
+                      onClick={() => setMode(key)}
+                      className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+                        active
+                          ? 'bg-white text-amber-700 shadow-sm'
+                          : 'text-stone-600 hover:text-stone-800'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
               </div>
-              <div>
-                <label className="text-sm font-semibold text-stone-600 mb-2 block">
-                  単価
-                </label>
-                <div className="relative">
-                  <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-stone-500">
-                    ¥
-                  </span>
+            </div>
+
+            {mode === 'single' ? (
+              <>
+                <div>
+                  <label className="text-sm font-semibold text-stone-600 mb-2 block">
+                    商品名
+                  </label>
                   <input
-                    type="number"
-                    min={0}
-                    value={unitPrice || ''}
-                    onChange={(e) =>
-                      setUnitPrice(parseFloat(e.target.value || '0'))
-                    }
-                    placeholder="0"
-                    className="w-full pl-8 pr-4 py-3 bg-white border-2 border-stone-200 rounded-xl text-stone-800 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    type="text"
+                    value={itemName}
+                    onChange={(e) => setItemName(e.target.value)}
+                    placeholder="例: 高機能オフィスチェア"
+                    className="w-full px-4 py-3 bg-white border-2 border-stone-200 rounded-xl text-stone-800 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-amber-500"
                   />
                 </div>
-              </div>
-            </div>
+
+                <div>
+                  <label className="text-sm font-semibold text-stone-600 mb-2 block">
+                    購入商品URL
+                  </label>
+                  <input
+                    type="url"
+                    value={productUrl}
+                    onChange={(e) => setProductUrl(e.target.value)}
+                    placeholder="https://example.com/product/123"
+                    className="w-full px-4 py-3 bg-white border-2 border-stone-200 rounded-xl text-stone-800 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-6">
+                  <div>
+                    <label className="text-sm font-semibold text-stone-600 mb-2 block">
+                      数量
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      value={quantity || ''}
+                      onChange={(e) =>
+                        setQuantity(parseInt(e.target.value || '0', 10))
+                      }
+                      placeholder="0"
+                      className="w-full px-4 py-3 bg-white border-2 border-stone-200 rounded-xl text-stone-800 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-semibold text-stone-600 mb-2 block">
+                      単価
+                    </label>
+                    <div className="relative">
+                      <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-stone-500">
+                        ¥
+                      </span>
+                      <input
+                        type="number"
+                        min={0}
+                        value={unitPrice || ''}
+                        onChange={(e) =>
+                          setUnitPrice(parseFloat(e.target.value || '0'))
+                        }
+                        placeholder="0"
+                        className="w-full pl-8 pr-4 py-3 bg-white border-2 border-stone-200 rounded-xl text-stone-800 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                <div>
+                  <label className="text-sm font-semibold text-stone-600 mb-2 block">
+                    購入商品URL（任意・代表URL）
+                  </label>
+                  <input
+                    type="url"
+                    value={productUrl}
+                    onChange={(e) => setProductUrl(e.target.value)}
+                    placeholder="https://example.com/product/123"
+                    className="w-full px-4 py-3 bg-white border-2 border-stone-200 rounded-xl text-stone-800 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-semibold text-stone-600 mb-2 block">
+                    明細
+                  </label>
+                  <div className="space-y-2">
+                    {multiLineItems.map((row, idx) => {
+                      const subtotal =
+                        Number(row.quantity || '0') *
+                        Number(row.unitPrice || '0');
+                      return (
+                        <div
+                          key={idx}
+                          className="bg-stone-50 border-2 border-stone-200 rounded-xl p-3"
+                        >
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-xs font-semibold text-stone-500">
+                              #{idx + 1}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => removeLineItem(idx)}
+                              disabled={multiLineItems.length <= 1}
+                              title="この行を削除"
+                              className="flex items-center gap-1 text-xs text-rose-600 hover:text-rose-700 disabled:opacity-30 disabled:cursor-not-allowed"
+                            >
+                              <Trash size={12} />
+                              削除
+                            </button>
+                          </div>
+                          <input
+                            type="text"
+                            value={row.itemName}
+                            onChange={(e) =>
+                              updateLineItem(idx, 'itemName', e.target.value)
+                            }
+                            placeholder="商品名"
+                            className="w-full mb-2 px-3 py-2 bg-white border-2 border-stone-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+                          />
+                          <div className="grid grid-cols-3 gap-2">
+                            <div>
+                              <label className="block text-[10px] text-stone-500 mb-1">
+                                数量
+                              </label>
+                              <input
+                                type="number"
+                                min={0}
+                                value={row.quantity}
+                                onChange={(e) =>
+                                  updateLineItem(idx, 'quantity', e.target.value)
+                                }
+                                placeholder="0"
+                                className="w-full px-2 py-1.5 bg-white border-2 border-stone-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[10px] text-stone-500 mb-1">
+                                単価
+                              </label>
+                              <input
+                                type="number"
+                                min={0}
+                                value={row.unitPrice}
+                                onChange={(e) =>
+                                  updateLineItem(idx, 'unitPrice', e.target.value)
+                                }
+                                placeholder="0"
+                                className="w-full px-2 py-1.5 bg-white border-2 border-stone-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[10px] text-stone-500 mb-1">
+                                小計
+                              </label>
+                              <div className="px-2 py-1.5 text-sm font-semibold text-stone-700">
+                                ¥{subtotal.toLocaleString()}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    <button
+                      type="button"
+                      onClick={addLineItem}
+                      className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-white border-2 border-dashed border-stone-300 hover:border-amber-400 hover:bg-amber-50 text-stone-600 hover:text-amber-700 rounded-lg text-sm font-semibold transition-colors"
+                    >
+                      <Plus size={14} />
+                      行を追加
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
 
             <div className="bg-stone-50 border-2 border-stone-200 rounded-2xl p-4 text-right">
               <span className="text-sm text-stone-600">合計金額</span>
               <p className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-amber-700 to-orange-700">
-                ¥{totalPrice.toLocaleString()}
+                ¥{displayedTotal.toLocaleString()}
               </p>
             </div>
 

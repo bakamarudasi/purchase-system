@@ -9,6 +9,7 @@ import type {
   ApplicationStatus,
   Approver,
   Confirmer,
+  LineItem,
   Purchaser,
 } from '../models/Application';
 
@@ -76,6 +77,7 @@ export function addApplication(data: {
   selectedApprover?: string;
   accountCategory?: string;
   chargingDepartment?: string;
+  lineItems?: LineItem[];
   file?: { name: string; mimeType: string; data: string };
 }): Application {
   return ApplicationService.addApplication(data);

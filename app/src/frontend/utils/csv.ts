@@ -22,6 +22,7 @@ const CSV_HEADERS = [
   '差額',
   '勘定科目',
   '負担部署',
+  '明細',
 ] as const;
 
 /**
@@ -73,6 +74,14 @@ export function applicationsToCsv(apps: Application[]): string {
         a.amountDiff ?? '',
         a.accountCategory,
         a.chargingDepartment,
+        a.lineItems.length >= 2
+          ? a.lineItems
+              .map(
+                (it) =>
+                  `${it.itemName} x${it.quantity} @${it.unitPrice}`,
+              )
+              .join(' / ')
+          : '',
       ]
         .map(escapeCsvCell)
         .join(','),
