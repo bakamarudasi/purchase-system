@@ -20,11 +20,13 @@ interface Props {
 
 interface MyStats {
   total: number;
-  pending: number;
-  approved: number;
+  /** 進行中（承認待ち + 確認待ち + 購入待ち） */
+  inProgress: number;
+  /** 進行中の合計金額 */
+  inProgressAmount: number;
+  ordered: number;
   rejected: number;
-  approvedAmount: number;
-  pendingAmount: number;
+  orderedAmount: number;
   thisMonthCount: number;
   thisMonthAmount: number;
 }
@@ -33,21 +35,21 @@ function calcStats(apps: Application[]): MyStats {
   const now = new Date();
   const ym = now.getFullYear() * 100 + now.getMonth();
 
-  let pending = 0;
-  let approved = 0;
+  let inProgress = 0;
+  let ordered = 0;
   let rejected = 0;
-  let approvedAmount = 0;
-  let pendingAmount = 0;
+  let orderedAmount = 0;
+  let inProgressAmount = 0;
   let thisMonthCount = 0;
   let thisMonthAmount = 0;
 
   for (const a of apps) {
-    if (a.status === '未対応') {
-      pending++;
-      pendingAmount += a.totalPrice;
-    } else if (a.status === '承認') {
-      approved++;
-      approvedAmount += a.totalPrice;
+    if (a.status === '承認待ち' || a.status === '確認待ち' || a.status === '購入待ち') {
+      inProgress++;
+      inProgressAmount += a.totalPrice;
+    } else if (a.status === '注文済') {
+      ordered++;
+      orderedAmount += a.actualAmount ?? a.totalPrice;
     } else if (a.status === '却下') {
       rejected++;
     }
@@ -63,11 +65,11 @@ function calcStats(apps: Application[]): MyStats {
 
   return {
     total: apps.length,
-    pending,
-    approved,
+    inProgress,
+    inProgressAmount,
+    ordered,
     rejected,
-    approvedAmount,
-    pendingAmount,
+    orderedAmount,
     thisMonthCount,
     thisMonthAmount,
   };
@@ -120,16 +122,16 @@ export function MyHistory({ applications, currentUser, onSelect }: Props) {
           gradient="from-blue-500 to-blue-600"
         />
         <KpiCard
-          label="承認待ち"
-          value={`${stats.pending}件`}
-          sub={formatYen(stats.pendingAmount)}
+          label="進行中"
+          value={`${stats.inProgress}件`}
+          sub={formatYen(stats.inProgressAmount)}
           icon={<Clock className="text-white" size={20} />}
           gradient="from-amber-500 to-orange-600"
         />
         <KpiCard
-          label="承認済み総額"
-          value={formatYen(stats.approvedAmount)}
-          sub={`${stats.approved}件`}
+          label="注文済 総額"
+          value={formatYen(stats.orderedAmount)}
+          sub={`${stats.ordered}件`}
           icon={<CheckCircle className="text-white" size={20} />}
           gradient="from-emerald-500 to-green-600"
         />
@@ -188,10 +190,15 @@ export function MyHistory({ applications, currentUser, onSelect }: Props) {
                         却下
                       </div>
                     )}
-                    {app.status === '承認' && (
+                    {app.status === '注文済' && (
                       <div className="text-xs text-emerald-600 flex items-center justify-end gap-1 mt-0.5">
                         <FileCheck size={12} />
-                        承認済み
+                        注文済
+                        {app.actualAmount != null && (
+                          <span className="ml-1 text-stone-500">
+                            ({formatYen(app.actualAmount)})
+                          </span>
+                        )}
                       </div>
                     )}
                   </div>
@@ -230,10 +237,15 @@ function KpiCard({ label, value, sub, icon, gradient }: KpiCardProps) {
 
 function TimelineDot({ status }: { status: string }) {
   const colorByStatus: Record<string, string> = {
-    未対応: 'bg-amber-400',
-    承認: 'bg-emerald-500',
+    承認待ち: 'bg-amber-400',
+    確認待ち: 'bg-sky-400',
+    購入待ち: 'bg-violet-400',
+    注文済: 'bg-emerald-500',
     却下: 'bg-rose-500',
-    購入済: 'bg-blue-500',
+    // 旧ステータス（互換）
+    未対応: 'bg-amber-400',
+    承認: 'bg-sky-400',
+    購入済: 'bg-emerald-500',
     完了: 'bg-stone-400',
   };
   const cls = colorByStatus[status] ?? 'bg-stone-300';

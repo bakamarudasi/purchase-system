@@ -14,6 +14,15 @@ const CSV_HEADERS = [
   '承認者',
   '承認日時',
   'コメント',
+  '確認者',
+  '確認日時',
+  '購入者',
+  '注文日時',
+  '実際金額',
+  '差額',
+  '勘定科目',
+  '負担部署',
+  '明細',
 ] as const;
 
 /**
@@ -57,6 +66,22 @@ export function applicationsToCsv(apps: Application[]): string {
         a.approver,
         formatCsvDate(a.approvalDate),
         a.comment,
+        a.confirmer,
+        formatCsvDate(a.confirmedDate),
+        a.purchaser,
+        formatCsvDate(a.orderedDate),
+        a.actualAmount ?? '',
+        a.amountDiff ?? '',
+        a.accountCategory,
+        a.chargingDepartment,
+        a.lineItems.length >= 2
+          ? a.lineItems
+              .map(
+                (it) =>
+                  `${it.itemName} x${it.quantity} @${it.unitPrice}`,
+              )
+              .join(' / ')
+          : '',
       ]
         .map(escapeCsvCell)
         .join(','),

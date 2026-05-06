@@ -4,7 +4,9 @@ import type * as serverFns from '../../backend/serverFunctions';
 import type {
   Application,
   Approver,
+  Confirmer,
   CurrentUser,
+  Purchaser,
   Statistics,
 } from '../types';
 
@@ -12,25 +14,45 @@ const { serverFunctions } = new GASClient<typeof serverFns>();
 
 const EMPTY_STATS: Statistics = {
   total: 0,
-  pending: 0,
-  approved: 0,
+  pendingApproval: 0,
+  pendingConfirmation: 0,
+  pendingPurchase: 0,
+  ordered: 0,
   rejected: 0,
-  totalApprovedAmount: 0,
+  totalOrderedAmount: 0,
 };
 
-const EMPTY_USER: CurrentUser = { email: '', name: '', department: '', role: 'applicant' };
+const EMPTY_USER: CurrentUser = {
+  email: '',
+  name: '',
+  department: '',
+  role: 'applicant',
+  isApprover: false,
+  isConfirmer: false,
+  isPurchaser: false,
+};
 
 function calculateStats(apps: Application[]): Statistics {
   // 楽観UIの仮データ（rowIndex < 0）は集計から除外する
   const real = apps.filter((a) => a.rowIndex >= 0 && !a.clientStatus);
   const total = real.length;
-  const pending = real.filter((a) => a.status === '未対応').length;
-  const approved = real.filter((a) => a.status === '承認').length;
+  const pendingApproval = real.filter((a) => a.status === '承認待ち').length;
+  const pendingConfirmation = real.filter((a) => a.status === '確認待ち').length;
+  const pendingPurchase = real.filter((a) => a.status === '購入待ち').length;
+  const ordered = real.filter((a) => a.status === '注文済').length;
   const rejected = real.filter((a) => a.status === '却下').length;
-  const totalApprovedAmount = real
-    .filter((a) => a.status === '承認')
-    .reduce((sum, a) => sum + a.totalPrice, 0);
-  return { total, pending, approved, rejected, totalApprovedAmount };
+  const totalOrderedAmount = real
+    .filter((a) => a.status === '注文済')
+    .reduce((sum, a) => sum + (a.actualAmount ?? a.totalPrice), 0);
+  return {
+    total,
+    pendingApproval,
+    pendingConfirmation,
+    pendingPurchase,
+    ordered,
+    rejected,
+    totalOrderedAmount,
+  };
 }
 
 const isProd = import.meta.env.PROD;
@@ -42,6 +64,11 @@ export function useApplications(onError: (msg: string) => void) {
   const [stats, setStats] = useState<Statistics>(EMPTY_STATS);
   const [currentUser, setCurrentUser] = useState<CurrentUser>(EMPTY_USER);
   const [approvers, setApprovers] = useState<Approver[]>([]);
+  const [confirmers, setConfirmers] = useState<Confirmer[]>([]);
+  const [purchasers, setPurchasers] = useState<Purchaser[]>([]);
+  const [accountCategories, setAccountCategories] = useState<string[]>([]);
+  const [chargingDepartments, setChargingDepartments] = useState<string[]>([]);
+  const [systemSettings, setSystemSettings] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
@@ -73,11 +100,15 @@ export function useApplications(onError: (msg: string) => void) {
         // dev では URL クエリ ?role=admin で管理者プレビューに切替できるようにする
         const params = new URLSearchParams(window.location.search);
         const devRole = params.get('role') === 'admin' ? 'admin' : 'applicant';
+        const isAdmin = devRole === 'admin';
         setCurrentUser({
-          email: devRole === 'admin' ? 'admin@example.com' : 'dev@example.com',
-          name: devRole === 'admin' ? '管理者 ユーザー' : '開発ユーザー',
+          email: isAdmin ? 'admin@example.com' : 'dev@example.com',
+          name: isAdmin ? '管理者 ユーザー' : '開発ユーザー',
           department: '開発部',
           role: devRole,
+          isApprover: isAdmin,
+          isConfirmer: isAdmin,
+          isPurchaser: isAdmin,
         });
         return;
       }
@@ -89,35 +120,56 @@ export function useApplications(onError: (msg: string) => void) {
       }
     };
 
-    const loadApprovers = async () => {
+    const loadMembers = async () => {
       if (!isProd) {
         setApprovers([
           { email: 'boss@example.com', name: '部長 太郎' },
           { email: 'lead@example.com', name: 'リーダー 花子' },
         ]);
+        setConfirmers([{ email: 'mutoh@example.com', name: '武藤 確認子' }]);
+        setPurchasers([
+          { email: 'takahashi@example.com', name: '高橋 購入太郎' },
+          { email: 'takamatsu@example.com', name: '高松 購入次郎' },
+        ]);
+        setAccountCategories(['設備課の備品費', '消耗品費', '修繕費']);
+        setChargingDepartments(['設備技術課', '生産技術課', 'その他']);
+        setSystemSettings({ REQUIRES_ITEM_REQUEST_THRESHOLD: '50000' });
         return;
       }
       try {
-        const list = await serverFunctions.getApproverList();
-        setApprovers(list);
+        const [appr, conf, purch, accts, depts, settings] = await Promise.all([
+          serverFunctions.getApproverList(),
+          serverFunctions.getConfirmerList(),
+          serverFunctions.getPurchaserList(),
+          serverFunctions.getAccountCategoryList(),
+          serverFunctions.getChargingDepartmentList(),
+          serverFunctions.getSystemSettings(),
+        ]);
+        setApprovers(appr);
+        setConfirmers(conf);
+        setPurchasers(purch);
+        setAccountCategories(accts);
+        setChargingDepartments(depts);
+        setSystemSettings(settings);
       } catch (e) {
-        console.error('承認者取得エラー:', e);
+        console.error('マスタデータ取得エラー:', e);
       }
     };
 
     void loadUser();
-    void loadApprovers();
+    void loadMembers();
   }, [refresh]);
 
   const approve = useCallback(
     async (rowIndex: number, approver: string, comment: string) => {
       if (!isProd) return;
+      // 承認すると次のステップ「確認待ち」に進む
       setApps((prev) => {
         const next = prev.map((app) =>
           app.rowIndex === rowIndex
             ? {
                 ...app,
-                status: '承認' as const,
+                status: '確認待ち' as const,
                 approver,
                 approvalDate: new Date().toISOString(),
                 comment,
@@ -165,6 +217,62 @@ export function useApplications(onError: (msg: string) => void) {
     [refresh],
   );
 
+  const confirmApp = useCallback(
+    async (rowIndex: number, confirmerEmail: string) => {
+      if (!isProd) return;
+      setApps((prev) => {
+        const next = prev.map((app) =>
+          app.rowIndex === rowIndex
+            ? {
+                ...app,
+                status: '購入待ち' as const,
+                confirmer: confirmerEmail,
+                confirmedDate: new Date().toISOString(),
+              }
+            : app,
+        );
+        setStats(calculateStats(next));
+        return next;
+      });
+      try {
+        await serverFunctions.confirmApplication(rowIndex);
+      } catch (e) {
+        await refresh();
+        throw e;
+      }
+    },
+    [refresh],
+  );
+
+  const markOrdered = useCallback(
+    async (rowIndex: number, purchaserEmail: string, actualAmount: number) => {
+      if (!isProd) return;
+      setApps((prev) => {
+        const next = prev.map((app) =>
+          app.rowIndex === rowIndex
+            ? {
+                ...app,
+                status: '注文済' as const,
+                purchaser: purchaserEmail,
+                orderedDate: new Date().toISOString(),
+                actualAmount,
+                amountDiff: actualAmount - app.totalPrice,
+              }
+            : app,
+        );
+        setStats(calculateStats(next));
+        return next;
+      });
+      try {
+        await serverFunctions.markAsOrdered(rowIndex, actualAmount);
+      } catch (e) {
+        await refresh();
+        throw e;
+      }
+    },
+    [refresh],
+  );
+
   /**
    * 新規申請の楽観送信。
    *
@@ -177,22 +285,48 @@ export function useApplications(onError: (msg: string) => void) {
       data: SubmitPayload,
     ): Promise<{ tempId: number; finalRowIndex: number | null }> => {
       const tempId = -Date.now();
+      const useLineItems = (data.lineItems?.length ?? 0) >= 2;
+      const lineItems = useLineItems ? data.lineItems! : [];
+      const summaryItemName = useLineItems
+        ? lineItems.length === 1
+          ? lineItems[0].itemName
+          : `${lineItems[0].itemName} 他${lineItems.length - 1}件`
+        : data.itemName;
+      const summaryQuantity = useLineItems
+        ? lineItems.reduce((s, it) => s + (it.quantity || 0), 0)
+        : data.quantity;
+      const summaryUnitPrice = useLineItems ? 0 : data.unitPrice;
+      const summaryTotal = useLineItems
+        ? lineItems.reduce(
+            (s, it) => s + (it.quantity || 0) * (it.unitPrice || 0),
+            0,
+          )
+        : data.quantity * data.unitPrice;
       const optimistic: Application = {
         rowIndex: tempId,
         timestamp: new Date().toISOString(),
         name: data.name,
         department: data.department,
-        itemName: data.itemName,
-        quantity: data.quantity,
-        unitPrice: data.unitPrice,
-        totalPrice: data.quantity * data.unitPrice,
+        itemName: summaryItemName,
+        quantity: summaryQuantity,
+        unitPrice: summaryUnitPrice,
+        totalPrice: summaryTotal,
         reason: data.reason,
         productUrl: data.productUrl ?? null,
         fileInfo: null,
-        status: '未対応',
+        status: '承認待ち',
         approver: data.selectedApprover ?? '',
         approvalDate: null,
         comment: '',
+        confirmer: '',
+        confirmedDate: null,
+        purchaser: '',
+        orderedDate: null,
+        actualAmount: null,
+        amountDiff: null,
+        accountCategory: data.accountCategory ?? '',
+        chargingDepartment: data.chargingDepartment ?? '',
+        lineItems,
         clientStatus: 'sending',
       };
 
@@ -255,6 +389,98 @@ export function useApplications(onError: (msg: string) => void) {
     setApprovers(list);
   }, []);
 
+  const addConfirmer = useCallback(async (email: string, name: string) => {
+    if (!isProd) {
+      setConfirmers((prev) =>
+        prev.some((a) => a.email === email) ? prev : [...prev, { email, name }],
+      );
+      return;
+    }
+    const list = await serverFunctions.addConfirmer(email, name);
+    setConfirmers(list);
+  }, []);
+
+  const removeConfirmer = useCallback(async (email: string) => {
+    if (!isProd) {
+      setConfirmers((prev) => prev.filter((a) => a.email !== email));
+      return;
+    }
+    const list = await serverFunctions.removeConfirmer(email);
+    setConfirmers(list);
+  }, []);
+
+  const addPurchaser = useCallback(async (email: string, name: string) => {
+    if (!isProd) {
+      setPurchasers((prev) =>
+        prev.some((a) => a.email === email) ? prev : [...prev, { email, name }],
+      );
+      return;
+    }
+    const list = await serverFunctions.addPurchaser(email, name);
+    setPurchasers(list);
+  }, []);
+
+  const removePurchaser = useCallback(async (email: string) => {
+    if (!isProd) {
+      setPurchasers((prev) => prev.filter((a) => a.email !== email));
+      return;
+    }
+    const list = await serverFunctions.removePurchaser(email);
+    setPurchasers(list);
+  }, []);
+
+  const addAccountCategory = useCallback(async (name: string) => {
+    if (!isProd) {
+      setAccountCategories((prev) =>
+        prev.includes(name) ? prev : [...prev, name],
+      );
+      return;
+    }
+    const list = await serverFunctions.addAccountCategory(name);
+    setAccountCategories(list);
+  }, []);
+
+  const removeAccountCategory = useCallback(async (name: string) => {
+    if (!isProd) {
+      setAccountCategories((prev) => prev.filter((n) => n !== name));
+      return;
+    }
+    const list = await serverFunctions.removeAccountCategory(name);
+    setAccountCategories(list);
+  }, []);
+
+  const addChargingDepartment = useCallback(async (name: string) => {
+    if (!isProd) {
+      setChargingDepartments((prev) =>
+        prev.includes(name) ? prev : [...prev.filter((n) => n !== 'その他'), name, 'その他'],
+      );
+      return;
+    }
+    const list = await serverFunctions.addChargingDepartment(name);
+    setChargingDepartments(list);
+  }, []);
+
+  const removeChargingDepartment = useCallback(async (name: string) => {
+    if (!isProd) {
+      setChargingDepartments((prev) => prev.filter((n) => n !== name));
+      return;
+    }
+    const list = await serverFunctions.removeChargingDepartment(name);
+    setChargingDepartments(list);
+  }, []);
+
+  const updateSystemSetting = useCallback(
+    async (key: string, value: string) => {
+      if (!isProd) {
+        setSystemSettings((prev) => ({ ...prev, [key]: value }));
+        return;
+      }
+      const next = await serverFunctions.updateSystemSetting(key, value);
+      setSystemSettings(next);
+    },
+    [],
+  );
+
   /**
    * 楽観UI で失敗した仮データを一覧から削除
    */
@@ -277,9 +503,9 @@ export function useApplications(onError: (msg: string) => void) {
       approver: string,
       comment: string,
     ): Promise<{ success: number[]; failed: { rowIndex: number; error: string }[] }> => {
+      const newStatus = action === 'approve' ? '確認待ち' : '却下';
       if (!isProd) {
         // dev 環境ではすべて成功扱いで楽観反映
-        const newStatus = action === 'approve' ? '承認' : '却下';
         setApps((prev) => {
           const next = prev.map((a) =>
             rowIndices.includes(a.rowIndex)
@@ -307,7 +533,6 @@ export function useApplications(onError: (msg: string) => void) {
         );
         // 成功した行だけ画面に反映
         const successSet = new Set(result.success);
-        const newStatus = action === 'approve' ? '承認' : '却下';
         setApps((prev) => {
           const next = prev.map((a) =>
             successSet.has(a.rowIndex)
@@ -337,14 +562,30 @@ export function useApplications(onError: (msg: string) => void) {
     stats,
     currentUser,
     approvers,
+    confirmers,
+    purchasers,
     loading,
     refresh,
     approve,
     reject,
+    confirmApp,
+    markOrdered,
     submitNew,
     discardOptimistic,
     processBulk,
     addApprover,
     removeApprover,
+    addConfirmer,
+    removeConfirmer,
+    addPurchaser,
+    removePurchaser,
+    accountCategories,
+    addAccountCategory,
+    removeAccountCategory,
+    chargingDepartments,
+    addChargingDepartment,
+    removeChargingDepartment,
+    systemSettings,
+    updateSystemSetting,
   };
 }

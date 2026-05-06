@@ -199,3 +199,10 @@ export const Trash = ({ size = 24, className }: IconProps) => (
     <path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2" />
   </svg>
 );
+
+export const Home = ({ size = 24, className }: IconProps) => (
+  <svg xmlns="http://www.w3.org/2000/svg" {...baseProps(size, className)}>
+    <path d="M3 12L12 3l9 9" />
+    <path d="M5 10v10a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V10" />
+  </svg>
+);

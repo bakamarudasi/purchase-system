@@ -1,7 +1,7 @@
-import { LayoutDashboard, List, Settings, User } from '../icons';
+import { Home, LayoutDashboard, List, Settings, User } from '../icons';
 import type { UserRole } from '../types';
 
-export type ViewKey = 'list' | 'mine' | 'dashboard' | 'settings';
+export type ViewKey = 'home' | 'list' | 'mine' | 'dashboard' | 'settings';
 
 interface Props {
   view: ViewKey;
@@ -18,7 +18,8 @@ interface TabDef {
 }
 
 const TABS: TabDef[] = [
-  // 全社の申請一覧は管理者だけが見られる
+  // ホームは管理者だけ（申請者は「マイページ」で十分）
+  { key: 'home', label: 'ホーム', Icon: Home, roles: ['admin'] },
   { key: 'list', label: '申請一覧', Icon: List, roles: ['admin'] },
   { key: 'mine', label: 'マイページ', Icon: User },
   { key: 'dashboard', label: 'ダッシュボード', Icon: LayoutDashboard },

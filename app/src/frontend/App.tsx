@@ -6,6 +6,7 @@ import { Dashboard } from './components/Dashboard';
 import { ExportModal } from './components/ExportModal';
 import { FilterBar, type FilterKey } from './components/FilterBar';
 import { Header } from './components/Header';
+import { HomeView } from './components/HomeView';
 import { MyHistory } from './components/MyHistory';
 import { NewApplicationForm } from './components/NewApplicationForm';
 import { Settings } from './components/Settings';
@@ -34,15 +35,39 @@ function App() {
     stats,
     currentUser,
     approvers,
+    confirmers,
+    purchasers,
+    accountCategories,
+    chargingDepartments,
+    systemSettings,
     loading,
     approve,
     reject,
+    confirmApp,
+    markOrdered,
     submitNew,
     discardOptimistic,
     processBulk,
     addApprover,
     removeApprover,
+    addConfirmer,
+    removeConfirmer,
+    addPurchaser,
+    removePurchaser,
+    addAccountCategory,
+    removeAccountCategory,
+    addChargingDepartment,
+    removeChargingDepartment,
+    updateSystemSetting,
   } = useApplications(onError);
+
+  const itemRequestThreshold = Number(
+    systemSettings.REQUIRES_ITEM_REQUEST_THRESHOLD ?? '50000',
+  );
+
+  const handleUpdateThreshold = async (n: number) => {
+    await updateSystemSetting('REQUIRES_ITEM_REQUEST_THRESHOLD', String(n));
+  };
 
   // ロールが取れるまでは仮で list を入れておき、確定後に出し分け
   const [view, setView] = useState<ViewKey>('list');
@@ -63,14 +88,14 @@ function App() {
   const [isExportOpen, setIsExportOpen] = useState(false);
 
   const pendingForMeCount = apps.filter(
-    (a) => a.status === '未対応' && a.approver === currentUser.email,
+    (a) => a.status === '承認待ち' && a.approver === currentUser.email,
   ).length;
 
   const anomalies = useAnomalies(apps);
 
   const handlePendingForMeClick = () => {
     setView('list');
-    setFilter('未対応');
+    setFilter('承認待ち');
     setMyPendingOnly(true);
   };
 
@@ -103,18 +128,18 @@ function App() {
   }, [filter, visibleTabs]);
 
   // 初回ユーザー読み込み完了時に、ロールに応じてデフォルトビューを決める
-  // 申請者は申請一覧タブが見えないので、'mine' を起点にする
+  // 管理者(承認者/確認者/購入者) は「ホーム」、申請者は「マイページ」起点
   useEffect(() => {
     if (viewInitialized || !currentUser.email) return;
-    setView(currentUser.role === 'admin' ? 'list' : 'mine');
+    setView(currentUser.role === 'admin' ? 'home' : 'mine');
     setViewInitialized(true);
   }, [currentUser, viewInitialized]);
 
-  // 申請者が何らかの経路で 'list' / 'settings' になったら mine に戻す（保険）
+  // 申請者が何らかの経路で 'home' / 'list' / 'settings' になったら mine に戻す（保険）
   useEffect(() => {
     if (
       currentUser.role === 'applicant' &&
-      (view === 'list' || view === 'settings')
+      (view === 'home' || view === 'list' || view === 'settings')
     ) {
       setView('mine');
     }
@@ -134,7 +159,7 @@ function App() {
     try {
       await approve(rowIndex, currentUser.email, comment);
       setSelectedApp(null);
-      pushToast('success', '承認しました');
+      pushToast('success', '承認しました（確認者に通知済）');
     } catch (e) {
       console.error('承認エラー:', e);
       pushToast('error', '承認に失敗しました');
@@ -149,6 +174,28 @@ function App() {
     } catch (e) {
       console.error('却下エラー:', e);
       pushToast('error', '却下に失敗しました');
+    }
+  };
+
+  const handleConfirm = async (rowIndex: number) => {
+    try {
+      await confirmApp(rowIndex, currentUser.email);
+      setSelectedApp(null);
+      pushToast('success', '確認しました（購入者に通知済）');
+    } catch (e) {
+      console.error('確認エラー:', e);
+      pushToast('error', '確認処理に失敗しました');
+    }
+  };
+
+  const handleMarkOrdered = async (rowIndex: number, actualAmount: number) => {
+    try {
+      await markOrdered(rowIndex, currentUser.email, actualAmount);
+      setSelectedApp(null);
+      pushToast('success', '注文済として登録しました（申請者に通知済）');
+    } catch (e) {
+      console.error('注文済登録エラー:', e);
+      pushToast('error', '注文済の登録に失敗しました');
     }
   };
 
@@ -192,6 +239,17 @@ function App() {
           pendingForMeCount={pendingForMeCount}
           onPendingForMeClick={handlePendingForMeClick}
         />
+
+        {view === 'home' && currentUser.role === 'admin' && (
+          <div className="p-3 md:p-8">
+            <HomeView
+              applications={apps}
+              currentUser={currentUser}
+              onSelect={setSelectedApp}
+              onJumpToList={() => setView('list')}
+            />
+          </div>
+        )}
 
         {view === 'list' && (
           <>
@@ -240,7 +298,7 @@ function App() {
             </div>
 
             <div className="px-3 md:px-8 pb-8">
-              {currentUser.role === 'admin' && (
+              {currentUser.isApprover && (
                 <BulkActionBar
                   count={selectedRowIndices.size}
                   onApprove={(c) => handleBulk('approve', c)}
@@ -254,10 +312,10 @@ function App() {
                 onSort={handleSort}
                 onSelect={setSelectedApp}
                 selectedRowIndices={
-                  currentUser.role === 'admin' ? selectedRowIndices : undefined
+                  currentUser.isApprover ? selectedRowIndices : undefined
                 }
                 onSelectionChange={
-                  currentUser.role === 'admin' ? setSelectedRowIndices : undefined
+                  currentUser.isApprover ? setSelectedRowIndices : undefined
                 }
                 anomalies={anomalies}
               />
@@ -290,8 +348,22 @@ function App() {
             <Settings
               currentUser={currentUser}
               approvers={approvers}
-              onAdd={addApprover}
-              onRemove={removeApprover}
+              confirmers={confirmers}
+              purchasers={purchasers}
+              accountCategories={accountCategories}
+              chargingDepartments={chargingDepartments}
+              itemRequestThreshold={itemRequestThreshold}
+              onAddApprover={addApprover}
+              onRemoveApprover={removeApprover}
+              onAddConfirmer={addConfirmer}
+              onRemoveConfirmer={removeConfirmer}
+              onAddPurchaser={addPurchaser}
+              onRemovePurchaser={removePurchaser}
+              onAddAccountCategory={addAccountCategory}
+              onRemoveAccountCategory={removeAccountCategory}
+              onAddChargingDepartment={addChargingDepartment}
+              onRemoveChargingDepartment={removeChargingDepartment}
+              onUpdateThreshold={handleUpdateThreshold}
               onPushToast={pushToast}
             />
           </div>
@@ -324,6 +396,8 @@ function App() {
                 }
               : handleReject
           }
+          onConfirm={handleConfirm}
+          onMarkOrdered={handleMarkOrdered}
         />
       )}
 
@@ -331,6 +405,9 @@ function App() {
         <NewApplicationForm
           currentUser={currentUser}
           approvers={approvers}
+          accountCategories={accountCategories}
+          chargingDepartments={chargingDepartments}
+          itemRequestThreshold={itemRequestThreshold}
           onClose={() => setIsNewAppFormOpen(false)}
           onSubmit={handleNewApplication}
           onPushToast={pushToast}

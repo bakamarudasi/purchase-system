@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { StatusBadge } from './StatusBadge';
+import { WorkflowStepper } from './WorkflowStepper';
 import { AlertTriangle, X } from '../icons';
 import { formatDate, getDriveFileId } from '../utils/format';
 import type { Application, CurrentUser } from '../types';
@@ -11,6 +12,8 @@ interface Props {
   onClose: () => void;
   onApprove: (rowIndex: number, comment: string) => Promise<void>;
   onReject: (rowIndex: number, comment: string) => Promise<void>;
+  onConfirm: (rowIndex: number) => Promise<void>;
+  onMarkOrdered: (rowIndex: number, actualAmount: number) => Promise<void>;
   anomalies?: Anomaly[];
 }
 
@@ -20,18 +23,52 @@ export function ApplicationDetail({
   onClose,
   onApprove,
   onReject,
+  onConfirm,
+  onMarkOrdered,
   anomalies,
 }: Props) {
   const [comment, setComment] = useState('');
   const [isPreviewingPdf, setIsPreviewingPdf] = useState(false);
-  const [isDecisionLoading, setIsDecisionLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [actualAmountInput, setActualAmountInput] = useState<string>(
+    String(application.totalPrice),
+  );
 
-  // 承認可能判定: 申請が未対応かつ、ログインユーザの email が承認者と一致
-  // (旧コードの「名前」比較は破綻していたため email 比較に修正)
-  const canDecide =
-    application.status === '未対応' &&
+  // 開いた直後にスライドインさせるためのマウント検知
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setMounted(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
+
+  const handleClose = () => {
+    onClose();
+    setIsPreviewingPdf(false);
+  };
+
+  // ESC で閉じられるように
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') handleClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 承認可能判定: 承認待ち + ログイン中ユーザー = 当該申請の承認者
+  const canApprove =
+    application.status === '承認待ち' &&
     currentUser.email !== '' &&
     application.approver === currentUser.email;
+
+  // 確認可能判定: 確認待ち + ログイン中ユーザーが確認者リストに登録済み
+  const canConfirm =
+    application.status === '確認待ち' && currentUser.isConfirmer;
+
+  // 注文済登録可能判定: 購入待ち + ログイン中ユーザーが購入者リストに登録済み
+  const canMarkOrdered =
+    application.status === '購入待ち' && currentUser.isPurchaser;
 
   const fileId = application.fileInfo
     ? getDriveFileId(application.fileInfo.url)
@@ -39,42 +76,77 @@ export function ApplicationDetail({
   const canPreview = !!fileId;
 
   const handleApprove = async () => {
-    setIsDecisionLoading(true);
+    setIsLoading(true);
     try {
       await onApprove(application.rowIndex, comment);
     } finally {
-      setIsDecisionLoading(false);
+      setIsLoading(false);
     }
   };
 
   const handleReject = async () => {
-    setIsDecisionLoading(true);
+    setIsLoading(true);
     try {
       await onReject(application.rowIndex, comment);
     } finally {
-      setIsDecisionLoading(false);
+      setIsLoading(false);
+    }
+  };
+
+  const handleConfirm = async () => {
+    setIsLoading(true);
+    try {
+      await onConfirm(application.rowIndex);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleMarkOrdered = async () => {
+    const amount = Number(actualAmountInput);
+    if (!Number.isFinite(amount) || amount < 0) {
+      alert('実際金額は0以上の数値で入力してください');
+      return;
+    }
+    setIsLoading(true);
+    try {
+      await onMarkOrdered(application.rowIndex, amount);
+    } finally {
+      setIsLoading(false);
     }
   };
 
   return (
-    <div
-      className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-0 md:p-8 z-50"
-      onClick={() => {
-        onClose();
-        setIsPreviewingPdf(false);
-      }}
-    >
+    <>
+      {/* 背景オーバーレイ
+            - モバイル(<md): 全面覆ってモーダル風
+            - デスクトップ(md+): 半透明の薄いベール（一覧も透けて見える） */}
       <div
-        className="bg-white rounded-none md:rounded-3xl shadow-2xl max-w-5xl w-full h-full md:h-[90vh] overflow-hidden md:border-4 md:border-stone-200 flex flex-col relative"
-        onClick={(e) => e.stopPropagation()}
+        className={`fixed inset-0 z-40 transition-opacity duration-200 ${
+          mounted ? 'opacity-100' : 'opacity-0'
+        } bg-black/60 md:bg-black/20`}
+        onClick={handleClose}
+        aria-hidden
+      />
+      {/* スライドパネル
+            - モバイル: 画面全体
+            - デスクトップ: 右からスライドイン (幅 ~52rem) */}
+      <aside
+        role="dialog"
+        aria-modal="true"
+        aria-label={`申請詳細: ${application.itemName}`}
+        className={`fixed z-50 bg-white shadow-2xl flex flex-col
+          inset-0
+          md:inset-y-0 md:right-0 md:left-auto md:w-[min(52rem,100vw)] md:border-l-2 md:border-stone-200
+          transition-transform duration-300 ease-out
+          ${mounted ? 'translate-x-0' : 'translate-x-full'}`}
       >
+        <div className="bg-white w-full h-full overflow-hidden flex flex-col relative">
         <div className="p-4 md:p-8 pb-0 flex-shrink-0">
           <button
-            onClick={() => {
-              onClose();
-              setIsPreviewingPdf(false);
-            }}
-            className="absolute top-4 right-4 md:top-8 md:right-8 w-10 h-10 bg-stone-100 hover:bg-stone-200 rounded-lg flex items-center justify-center text-stone-700 transition-colors z-10"
+            onClick={handleClose}
+            aria-label="閉じる"
+            className="absolute top-4 right-4 md:top-6 md:right-6 w-10 h-10 bg-stone-100 hover:bg-stone-200 rounded-lg flex items-center justify-center text-stone-700 transition-colors z-10"
           >
             <X size={20} />
           </button>
@@ -131,32 +203,120 @@ export function ApplicationDetail({
           </div>
         ) : (
           <div className="p-4 md:p-8 pt-0 overflow-y-auto">
+            <div className="mb-6">
+              <WorkflowStepper application={application} />
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-8 mb-6 md:mb-8">
               <div className="bg-stone-50 border-2 border-stone-200 rounded-2xl p-6">
                 <h3 className="text-sm font-semibold text-stone-600 uppercase tracking-wide mb-4">
                   申請情報
                 </h3>
                 <div className="space-y-4">
-                  <Row
-                    label="数量"
-                    value={`${application.quantity}個`}
-                  />
-                  <Row
-                    label="単価"
-                    value={`¥${application.unitPrice.toLocaleString()}`}
-                  />
-                  <Row
-                    label="合計金額"
-                    value={
-                      <span className="font-semibold text-2xl text-transparent bg-clip-text bg-gradient-to-r from-amber-700 to-orange-700">
-                        ¥{application.totalPrice.toLocaleString()}
-                      </span>
-                    }
-                  />
+                  {application.lineItems.length >= 2 ? (
+                    <>
+                      <div className="text-xs font-semibold text-stone-500 mb-1">
+                        明細（{application.lineItems.length}件）
+                      </div>
+                      <div className="overflow-x-auto -mx-2">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="text-left text-xs text-stone-500 border-b border-stone-200">
+                              <th className="px-2 py-2 font-semibold">商品名</th>
+                              <th className="px-2 py-2 font-semibold text-right">数量</th>
+                              <th className="px-2 py-2 font-semibold text-right">単価</th>
+                              <th className="px-2 py-2 font-semibold text-right">小計</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {application.lineItems.map((it, i) => (
+                              <tr
+                                key={i}
+                                className="border-b border-stone-100 last:border-b-0"
+                              >
+                                <td className="px-2 py-2 text-stone-800">
+                                  {it.itemName}
+                                </td>
+                                <td className="px-2 py-2 text-right text-stone-700">
+                                  {it.quantity}
+                                </td>
+                                <td className="px-2 py-2 text-right text-stone-700">
+                                  ¥{it.unitPrice.toLocaleString()}
+                                </td>
+                                <td className="px-2 py-2 text-right font-semibold text-stone-800">
+                                  ¥{(it.quantity * it.unitPrice).toLocaleString()}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <Row
+                        label="合計金額"
+                        value={
+                          <span className="font-semibold text-2xl text-transparent bg-clip-text bg-gradient-to-r from-amber-700 to-orange-700">
+                            ¥{application.totalPrice.toLocaleString()}
+                          </span>
+                        }
+                      />
+                    </>
+                  ) : (
+                    <>
+                      <Row
+                        label="数量"
+                        value={`${application.quantity}個`}
+                      />
+                      <Row
+                        label="単価"
+                        value={`¥${application.unitPrice.toLocaleString()}`}
+                      />
+                      <Row
+                        label="合計金額"
+                        value={
+                          <span className="font-semibold text-2xl text-transparent bg-clip-text bg-gradient-to-r from-amber-700 to-orange-700">
+                            ¥{application.totalPrice.toLocaleString()}
+                          </span>
+                        }
+                      />
+                    </>
+                  )}
+                  {application.actualAmount != null && (
+                    <Row
+                      label="実際金額"
+                      value={
+                        <span className="font-semibold text-stone-800">
+                          ¥{application.actualAmount.toLocaleString()}
+                          {application.amountDiff != null && application.amountDiff !== 0 && (
+                            <span
+                              className={`ml-2 text-sm ${
+                                application.amountDiff > 0
+                                  ? 'text-rose-600'
+                                  : 'text-emerald-600'
+                              }`}
+                            >
+                              ({application.amountDiff > 0 ? '+' : ''}
+                              {application.amountDiff.toLocaleString()})
+                            </span>
+                          )}
+                        </span>
+                      }
+                    />
+                  )}
                   <Row
                     label="ステータス"
                     value={<StatusBadge status={application.status} />}
                   />
+                  {application.accountCategory && (
+                    <Row
+                      label="勘定科目"
+                      value={application.accountCategory}
+                    />
+                  )}
+                  {application.chargingDepartment && (
+                    <Row
+                      label="負担部署"
+                      value={application.chargingDepartment}
+                    />
+                  )}
                   {application.productUrl && (
                     <Row
                       label="商品URL"
@@ -220,8 +380,8 @@ export function ApplicationDetail({
               </div>
             </div>
 
-            {canDecide && (
-              <div className="bg-stone-50 border-2 border-stone-200 rounded-2xl p-6">
+            {canApprove && (
+              <div className="bg-stone-50 border-2 border-stone-200 rounded-2xl p-6 mb-4">
                 <h3 className="text-sm font-semibold text-stone-600 uppercase tracking-wide mb-4">
                   承認アクション
                 </h3>
@@ -231,30 +391,82 @@ export function ApplicationDetail({
                   value={comment}
                   onChange={(e) => setComment(e.target.value)}
                   className="w-full px-4 py-3 bg-white border-2 border-stone-200 rounded-xl text-stone-800 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-amber-500 mb-4"
-                  disabled={isDecisionLoading}
+                  disabled={isLoading}
                 />
                 <div className="grid grid-cols-2 gap-4">
                   <button
                     onClick={handleApprove}
                     className="px-6 py-4 bg-gradient-to-r from-emerald-600 to-green-600 text-white rounded-xl font-semibold hover:from-emerald-700 hover:to-green-700 transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
-                    disabled={isDecisionLoading}
+                    disabled={isLoading}
                   >
-                    {isDecisionLoading ? '処理中...' : '✓ 承認する'}
+                    {isLoading ? '処理中...' : '✓ 承認する'}
                   </button>
                   <button
                     onClick={handleReject}
                     className="px-6 py-4 bg-gradient-to-r from-rose-600 to-red-600 text-white rounded-xl font-semibold hover:from-rose-700 hover:to-red-700 transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
-                    disabled={isDecisionLoading}
+                    disabled={isLoading}
                   >
-                    {isDecisionLoading ? '処理中...' : '✗ 却下する'}
+                    {isLoading ? '処理中...' : '✗ 却下する'}
                   </button>
                 </div>
               </div>
             )}
+
+            {canConfirm && (
+              <div className="bg-stone-50 border-2 border-stone-200 rounded-2xl p-6 mb-4">
+                <h3 className="text-sm font-semibold text-stone-600 uppercase tracking-wide mb-4">
+                  確認アクション
+                </h3>
+                <p className="text-sm text-stone-600 mb-4">
+                  内容に問題がなければ「確認」ボタンを押してください。購入者に購入依頼が通知されます。
+                </p>
+                <button
+                  onClick={handleConfirm}
+                  className="w-full px-6 py-4 bg-gradient-to-r from-sky-600 to-blue-600 text-white rounded-xl font-semibold hover:from-sky-700 hover:to-blue-700 transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                  disabled={isLoading}
+                >
+                  {isLoading ? '処理中...' : '✓ 確認する'}
+                </button>
+              </div>
+            )}
+
+            {canMarkOrdered && (
+              <div className="bg-stone-50 border-2 border-stone-200 rounded-2xl p-6 mb-4">
+                <h3 className="text-sm font-semibold text-stone-600 uppercase tracking-wide mb-4">
+                  注文済登録
+                </h3>
+                <p className="text-sm text-stone-600 mb-4">
+                  商品を購入したら、実際の購入金額を入力して「注文済」ボタンを押してください。申請者に通知されます。
+                </p>
+                <label className="block text-sm font-semibold text-stone-700 mb-2">
+                  実際金額 <span className="text-rose-600">*</span>
+                </label>
+                <div className="flex items-center gap-2 mb-4">
+                  <span className="text-stone-600">¥</span>
+                  <input
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={actualAmountInput}
+                    onChange={(e) => setActualAmountInput(e.target.value)}
+                    className="flex-1 px-4 py-3 bg-white border-2 border-stone-200 rounded-xl text-stone-800 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    disabled={isLoading}
+                  />
+                </div>
+                <button
+                  onClick={handleMarkOrdered}
+                  className="w-full px-6 py-4 bg-gradient-to-r from-violet-600 to-purple-600 text-white rounded-xl font-semibold hover:from-violet-700 hover:to-purple-700 transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                  disabled={isLoading}
+                >
+                  {isLoading ? '処理中...' : '📦 注文済として登録'}
+                </button>
+              </div>
+            )}
           </div>
         )}
-      </div>
-    </div>
+        </div>
+      </aside>
+    </>
   );
 }
 
